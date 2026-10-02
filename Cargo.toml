@@ -1,0 +1,35 @@
+[package]
+name = "rust_des_kernel"
+version = "0.1.0"
+edition = "2024"
+
+description = "A discrete-event simulation kernel in Rust, with a bit-exact port of a disaggregated LLM-inference simulator, exposed to Python with PyO3"
+license = "MIT"
+repository = "https://github.com/BrendanJamesLynskey/Rust_DES_Kernel"
+rust-version = "1.88"
+
+[lib]
+name = "rust_des_kernel"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29.3", optional = true, features = ["abi3-py310"] }
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order", "float_roundtrip"] }
+
+[features]
+# `maturin develop` turns this on (see pyproject.toml); `cargo test` leaves it off.
+python = ["dep:pyo3", "pyo3/extension-module"]
+
+[dev-dependencies]
+criterion = "0.8.2"
+proptest = "1.11.0"
+
+[[bench]]
+name = "engine"
+harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

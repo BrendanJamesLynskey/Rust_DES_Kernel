@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy (library, tests, benches)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests (unit, golden parity, proptest, kernel)
+        run: cargo test --release
+      - name: CLI smoke test
+        run: cargo run --release --bin disagg-rs -- --n 200 --json > /dev/null
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Clippy (PyO3 bindings)
+        run: cargo clippy --features python -- -D warnings
+      - name: Build the extension and install the Python reference simulator
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install maturin
+          .venv/bin/maturin develop --release -E dev
+      - name: Differential tests against Disaggregated_Inference_Sim
+        run: .venv/bin/pytest pytests

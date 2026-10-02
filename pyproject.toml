@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rust-des"
+version = "0.1.0"
+description = "Rust core of Disaggregated_Inference_Sim (bit-exact), exposed to Python with PyO3."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Brendan Lynskey" }]
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: Implementation :: CPython"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "hypothesis>=6.0",
+    "pytest-cov>=5.0",
+    "disagg-sim @ git+https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim",
+]
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "rust_des._native"
+
+[tool.pytest.ini_options]
+testpaths = ["pytests"]
+addopts = "-ra -q"

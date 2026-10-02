@@ -1,0 +1,11 @@
+/target
+/.venv
+__pycache__/
+*.so
+.pytest_cache/
+.hypothesis/
+mutants.out*/
+coverage.xml
+perf_report.md
+pytest-junit.xml
+sweep.csv
