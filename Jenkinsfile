@@ -58,8 +58,10 @@ pipeline {
         stage('Coverage') {
             steps {
                 sh 'cargo llvm-cov --release --cobertura --output-path coverage.xml'
+                // cargo-llvm-cov lists each generic instantiation as its own method, and the
+                // Coverage plugin's Cobertura parser rejects duplicate names: skip them.
                 recordCoverage(tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']],
-                               sourceCodeRetention: 'LAST_BUILD')
+                               sourceCodeRetention: 'LAST_BUILD', ignoreParsingErrors: true)
             }
         }
 
