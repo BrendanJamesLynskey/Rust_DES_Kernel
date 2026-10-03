@@ -56,8 +56,11 @@ fn dist(xs: &[f64]) -> Value {
     if xs.is_empty() {
         return json!({"mean": null, "p50": null, "p90": null, "p99": null, "max": null});
     }
+    // One sort serves all three percentiles and the max (the Python port sorted per
+    // percentile until 2026-10-03; this one never did). Unstable is safe: values equal
+    // under total_cmp are bit-identical, so the sorted slice is the same.
     let mut s = xs.to_vec();
-    s.sort_by(f64::total_cmp);
+    s.sort_unstable_by(f64::total_cmp);
     json!({
         "mean": num(fmean(xs)),
         "p50": num(percentile_sorted(&s, 50)),

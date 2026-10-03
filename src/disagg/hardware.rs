@@ -47,8 +47,24 @@ impl ModelSpec {
         self.n_layers * self.params_per_layer() + self.vocab * self.d_model
     }
 
+    /// Bytes the weights occupy in memory (residency), both vocabulary tables included.
     pub fn weight_bytes_total(&self) -> f64 {
         self.params() as f64 * self.weight_bytes
+    }
+
+    /// Weights every forward pass reads in full: all layers plus the LM head.
+    pub fn weight_bytes_streamed(&self) -> f64 {
+        self.matmul_params() as f64 * self.weight_bytes
+    }
+
+    pub fn embedding_row_bytes(&self) -> f64 {
+        self.d_model as f64 * self.weight_bytes
+    }
+
+    /// Weight traffic of one forward pass over `tokens` tokens: the streamed weights plus
+    /// only the embedding rows looked up (corrected 2026-10-03; it was the whole table).
+    pub fn weight_bytes_read(&self, tokens: i64) -> f64 {
+        self.weight_bytes_streamed() + tokens as f64 * self.embedding_row_bytes()
     }
 
     /// K and V, for every layer, for one token.
@@ -220,6 +236,8 @@ pub struct CostModel {
     pub idle_w: f64,
     budget: Option<f64>,
     weight_bytes: f64,
+    weight_stream: f64,
+    emb_row: f64,
     kv_per_token: f64,
     matmul2: i128,
     attn: i128,
@@ -265,6 +283,8 @@ impl CostModel {
             idle_w: device.idle_w * n_devices as f64,
             budget,
             weight_bytes: model.weight_bytes_total(),
+            weight_stream: model.weight_bytes_streamed(),
+            emb_row: model.embedding_row_bytes(),
             kv_per_token: model.kv_bytes_per_token(),
             matmul2: 2 * model.matmul_params() as i128,
             attn: 2 * (model.n_layers * model.d_model) as i128,
@@ -355,14 +375,18 @@ impl CostModel {
         flops += prompt_lens
             .map(|s| self.attn * s as i128 * (s as i128 + 1))
             .sum::<i128>();
-        let nbytes = self.weight_bytes + tokens as f64 * self.kv_per_token;
+        let nbytes =
+            self.weight_stream + tokens as f64 * self.emb_row + tokens as f64 * self.kv_per_token;
         self.cost(flops, nbytes)
     }
 
     /// One decode step; the cost depends only on the batch size and total context.
+    /// Each new token attends to its context and to itself: `ctx + batch` positions.
     pub fn decode_sum(&self, ctx: i64, batch: i64) -> StepCost {
-        let flops = self.matmul2 * batch as i128 + 2 * self.attn * ctx as i128;
-        let nbytes = self.weight_bytes + (ctx + batch) as f64 * self.kv_per_token;
+        let flops = self.matmul2 * batch as i128 + 2 * self.attn * (ctx + batch) as i128;
+        let nbytes = self.weight_stream
+            + batch as f64 * self.emb_row
+            + (ctx + batch) as f64 * self.kv_per_token;
         self.cost(flops, nbytes)
     }
 }
@@ -385,6 +409,27 @@ mod tests {
             CostModel::new(LLAMA3_70B, device("h100").unwrap(), 4, 0.5e-3, None, false).unwrap();
         assert_eq!(cm.decode_sum(4096, 8).bound, Bound::Memory);
         assert_eq!(cm.prefill([4096i64].into_iter()).bound, Bound::Compute);
+    }
+
+    #[test]
+    fn step_reads_embedding_rows_not_the_table() {
+        // Same numbers as test_step_weight_traffic_reads_embedding_rows_not_the_table.
+        let m = LLAMA3_8B;
+        assert_eq!(m.weight_bytes_streamed(), 15_009_316_864.0);
+        assert_eq!(m.weight_bytes_read(16), 15_009_316_864.0 + 16.0 * 8192.0);
+        assert_eq!(
+            m.weight_bytes_total() - m.weight_bytes_streamed(),
+            1_050_673_152.0
+        );
+        let cm =
+            CostModel::new(m.clone(), device("h100").unwrap(), 1, 0.5e-3, None, false).unwrap();
+        let d = cm.decode_sum(3000, 2);
+        assert_eq!(
+            d.bytes,
+            15_009_316_864.0 + 2.0 * 8192.0 + 3002.0 * 131_072.0
+        );
+        let attn = 4 * 32 * 4096 * 3002_i128;
+        assert_eq!(d.flops, (2 * m.matmul_params() as i128 * 2 + attn) as f64);
     }
 
     #[test]

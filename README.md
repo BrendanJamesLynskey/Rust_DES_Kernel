@@ -22,10 +22,19 @@ simulator core across languages *without changing a single answer*:
 * **Same workloads.** Python's `random.Random` (MT19937, `init_by_array`, the
   53-bit `random()`, `expovariate`, `lognormvariate`) is reproduced exactly, so
   the Rust generator emits the same requests as the Python one for the same seed.
-* **Measured, not claimed.** The Rust core runs 53–69× faster than the SimPy
-  model and 29–31× faster than its exact fast path; releasing the GIL lets
-  Python threads run simulations in parallel (2.8× on 4 cores). All numbers are in
+* **Measured, not claimed.** The Rust core runs 71–74× faster than the SimPy
+  model and 36× faster than its exact fast path; releasing the GIL lets
+  Python threads run simulations in parallel (3.0× on 4 cores). All numbers are in
   [`examples/results.md`](examples/results.md).
+
+> **Cost model corrected on 2026-10-03.** The Python original charged every step the whole
+> input-embedding table and left out each decode token's attention to itself. An operator
+> trace of the real model found both
+> ([Torch_Sim_Frontend](https://github.com/BrendanJamesLynskey/Torch_Sim_Frontend)). This port was
+> corrected in the same way and is still bit-exact. The golden fixture and every figure below were
+> regenerated. The summary's single sort became an unstable sort, with identical output. The
+> speed-ups (53–69× before) vary from run to run on this desktop: three runs on 2026-10-03 gave
+> 65–76×. Neither change touches the event loop.
 
 ---
 
@@ -58,7 +67,7 @@ print(run.summary["latency_s"]["ttft"]["p99"], run.events, run.core_s)
 Example report (`disagg-rs --prefill 2 --rate 6 --link eth-25g`):
 
 ```
-utilisation  prefill-0 47%  prefill-1 13%  decode-0 100%  kv-link 97%
+utilisation  prefill-0 48%  prefill-1 13%  decode-0 100%  kv-link 97%
 hot-spot     stage=kv_wait -> kv-link (busy 97%)
 ```
 
@@ -99,7 +108,7 @@ Test quality is measured, and recorded in `examples/results.md` (sections 6–8)
 ```bash
 cargo llvm-cov --release --json --summary-only --output-path target/llvm-cov-summary.json
 systemd-run --user --scope -p MemoryMax=5G \
-  cargo mutants -j 2 --exclude src/python.rs --timeout 30 -o target/mutants-after-run
+  cargo mutants -j 2 --exclude src/python.rs --timeout 30 -o target/mutants-final-run
 python examples/results.py
 ```
 
@@ -107,13 +116,13 @@ python examples/results.py
 
 | Workload | Python SimPy | Python fast path | Rust core | Speed-up vs SimPy | Rust events/s |
 |----------|--------------|------------------|-----------|-------------------|---------------|
-| 1P1D, 1,000 requests | 0.264 s | 0.132 s | 4.3 ms | 62× | 4.73 M |
-| Colocated ×2, 1,000 requests | 0.306 s | n/a | 4.5 ms | 69× | 6.05 M |
-| 2P2D, 10,000 requests | 2.753 s | 1.494 s | 52.2 ms | 53× | 3.91 M |
+| 1P1D, 1,000 requests | 0.285 s | 0.141 s | 4.0 ms | 72× | 5.17 M |
+| Colocated ×2, 1,000 requests | 0.324 s | n/a | 4.4 ms | 74× | 6.22 M |
+| 2P2D, 10,000 requests | 2.901 s | 1.460 s | 40.9 ms | 71× | 5.06 M |
 
 Machine: Intel i7-3770 (4 cores, 8 threads), Python 3.12, SimPy 4.1.2, rustc 1.99.
 Parity: 6 configurations × 1,000 requests, 0 differing timestamps, identical summaries.
-Tests: 46 (29 Rust, 17 Python); line coverage 97.5%; mutation score 95% (786 of 830 viable, non-timeout mutants caught).
+Tests: 47 (30 Rust, 17 Python); line coverage 97.5%; mutation score 95% (813 of 857 viable, non-timeout mutants caught; rerun after the 2026-10-03 correction).
 
 ---
 
@@ -142,7 +151,7 @@ Tests: 46 (29 Rust, 17 Python); line coverage 97.5%; mutation score 95% (786 of 
 
 The time-series probe and Chrome trace export (passive in Python, so they do
 not affect results), the exact fast path (`FastDecodeInstance`; the Rust baseline
-is already 29–31× faster than it), and the search/sweep helpers.
+is already about 36× faster than it), and the search/sweep helpers.
 
 ---
 

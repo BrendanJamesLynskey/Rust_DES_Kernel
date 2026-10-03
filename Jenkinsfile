@@ -1,6 +1,6 @@
 // Jenkins pipeline for Rust_DES_Kernel.
 //
-// Stages: lint -> Rust tests (JUnit via cargo-nextest) -> Python differential
+// Stages: clean old reports -> lint -> Rust tests (JUnit via cargo-nextest) -> Python differential
 // tests (JUnit via pytest) -> coverage (cargo-llvm-cov, Cobertura) -> benchmarks
 // and a performance-regression gate -> results.md -> an optional nightly sweep.
 //
@@ -33,6 +33,15 @@ pipeline {
     }
 
     stages {
+        // The workspace is reused between builds (it keeps the virtualenv and build caches), so
+        // delete the previous build's reports first. Without this a build that fails before its
+        // tests run publishes the last build's JUnit results as its own (Rust_DES_Kernel #4 did).
+        stage('Clean reports') {
+            steps {
+                sh 'rm -f target/nextest/ci/junit.xml pytest-junit.xml coverage.xml perf_report.md sweep.csv'
+            }
+        }
+
         stage('Lint') {
             steps {
                 sh(env.WITH_CARGO + 'cargo fmt --check')

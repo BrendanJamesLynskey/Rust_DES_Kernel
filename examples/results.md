@@ -5,6 +5,14 @@ Simulation Engineering Toolkit decks comes from this file.
 
 Machine: Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz, 8 logical CPUs; Linux 7.0.0-34-generic; Python 3.12.12; SimPy 4.1.2; rustc 1.99.0 (b940084d7 2026-09-28); rust_des 0.1.0.
 
+**2026-10-03: cost model corrected.** Disaggregated_Inference_Sim's closed form charged every step
+the whole input-embedding table and left out each new decode token's attention to itself; an
+operator trace of the real model (Torch_Sim_Frontend) found both. This port was corrected in the
+same way (`hardware.rs`), the golden fixture regenerated from the corrected Python, and every
+number below re-measured. The summary's single sort is now `sort_unstable_by` (identical output:
+values equal under `total_cmp` are bit-identical); unlike the Python original, this port always
+sorted once per distribution.
+
 ## 1. Bit-exact parity with the Python simulator
 
 Every timestamp of every request, compared with `==`, and the whole summary
@@ -29,17 +37,17 @@ start-ups, resource grants and releases.
 
 | Workload | Python SimPy | Python fast path | Rust core | Rust via PyO3 (total) | Core speed-up vs SimPy | vs fast path | Rust events/s | SimPy events/s |
 |---|---|---|---|---|---|---|---|---|
-| 1P1D, 1,000 requests at 4 req/s | 0.264 s | 0.132 s | 4.3 ms | 16.9 ms | 62x | 31x | 4.73 M | 92 k |
-| Colocated x2, 1,000 requests at 4 req/s | 0.306 s | n/a | 4.5 ms | 16.4 ms | 69x | n/a | 6.05 M | 88 k |
-| 2P2D, 10,000 requests at 8 req/s | 2.753 s | 1.494 s | 52.2 ms | 188.2 ms | 53x | 29x | 3.91 M | 89 k |
+| 1P1D, 1,000 requests at 4 req/s | 0.285 s | 0.141 s | 4.0 ms | 13.2 ms | 72x | 36x | 5.17 M | 86 k |
+| Colocated x2, 1,000 requests at 4 req/s | 0.324 s | n/a | 4.4 ms | 13.9 ms | 74x | n/a | 6.22 M | 85 k |
+| 2P2D, 10,000 requests at 8 req/s | 2.901 s | 1.460 s | 40.9 ms | 153.8 ms | 71x | 36x | 5.06 M | 85 k |
 
 ### Where the time goes in one PyO3 call
 
 | Workload | Rust simulate | Rust summarise | Boundary (conversion) | Python `summarise()` |
 |---|---|---|---|---|
-| 1P1D, 1,000 requests at 4 req/s | 4.3 ms | 11.3 ms | 1.3 ms | 99 ms |
-| Colocated x2, 1,000 requests at 4 req/s | 4.5 ms | 11.5 ms | 0.4 ms | 99 ms |
-| 2P2D, 10,000 requests at 8 req/s | 52.2 ms | 128.5 ms | 7.5 ms | 1326 ms |
+| 1P1D, 1,000 requests at 4 req/s | 4.0 ms | 8.5 ms | 0.7 ms | 47 ms |
+| Colocated x2, 1,000 requests at 4 req/s | 4.4 ms | 9.0 ms | 0.6 ms | 46 ms |
+| 2P2D, 10,000 requests at 8 req/s | 40.9 ms | 108.4 ms | 4.6 ms | 593 ms |
 
 ## 3. Releasing the GIL
 
@@ -49,34 +57,34 @@ do not help it; processes do.
 
 | What | Runs | Wall time | Speed-up over sequential |
 |---|---|---|---|
-| Rust via PyO3, sequential | 8 x 4,000 requests | 0.460 s | 1.0x |
-| Rust via PyO3, 8 Python threads (GIL released) | 8 x 4,000 requests | 0.167 s | 2.8x |
-| Rust `simulate_many` (rayon, one call) | 8 x 4,000 requests | 0.175 s | 2.6x |
-| Python SimPy, sequential | 4 x 1,000 requests | 1.05 s | 1.0x |
-| Python SimPy, 4 threads (GIL held) | 4 x 1,000 requests | 2.70 s | 0.4x |
-| Python SimPy, 4 processes | 4 x 1,000 requests | 0.31 s | 3.3x |
+| Rust via PyO3, sequential | 8 x 4,000 requests | 0.430 s | 1.0x |
+| Rust via PyO3, 8 Python threads (GIL released) | 8 x 4,000 requests | 0.144 s | 3.0x |
+| Rust `simulate_many` (rayon, one call) | 8 x 4,000 requests | 0.131 s | 3.3x |
+| Python SimPy, sequential | 4 x 1,000 requests | 1.11 s | 1.0x |
+| Python SimPy, 4 threads (GIL held) | 4 x 1,000 requests | 2.40 s | 0.5x |
+| Python SimPy, 4 processes | 4 x 1,000 requests | 0.30 s | 3.7x |
 
 ## 4. Criterion benchmarks (Rust only)
 
 | Benchmark | Mean time | Throughput |
 |---|---|---|
-| `kernel/md1_100k_customers` | 6.71 ms | 29.8 M events/s |
-| `disagg/1P1D_1000req` | 3.79 ms | 5.3 M events/s |
-| `disagg/colocated_1000req` | 4.40 ms | 6.2 M events/s |
+| `kernel/md1_100k_customers` | 6.78 ms | 29.5 M events/s |
+| `disagg/1P1D_1000req` | 3.94 ms | 5.2 M events/s |
+| `disagg/colocated_1000req` | 4.52 ms | 6.1 M events/s |
 
 ## 5. Command-line example
 
 `disagg-rs --prefill 2 --rate 6 --link eth-25g`
 
 ```
-── disagg ── 1000 done, 0 rejected, sim 223.0s
+── disagg ── 1000 done, 0 rejected, sim 222.9s
 latency (ms)       mean      p50      p90      p99
   ttft          192.8    167.3    326.8    578.9
-  tpot          151.1    126.3    281.3    451.8
-  itl           122.9     14.9     15.2     15.4
-  e2e         32615.0  32299.9  51708.9  58831.8
-throughput        1188 tok/s   4.48 req/s   goodput 0.00 req/s   SLO met 0.0%
-utilisation  prefill-0 47%  prefill-1 13%  decode-0 100%  kv-link 97%
+  tpot          150.9    126.0    280.9    451.5
+  itl           122.7     14.7     15.0     15.2
+  e2e         32558.7  32260.2  51650.4  58767.8
+throughput        1188 tok/s   4.49 req/s   goodput 0.00 req/s   SLO met 0.0%
+utilisation  prefill-0 48%  prefill-1 13%  decode-0 100%  kv-link 97%
 power        avg 3350 W   2.82 J/token
 hot-spot     stage=kv_wait -> kv-link (busy 97%)
 ```
@@ -85,14 +93,14 @@ hot-spot     stage=kv_wait -> kv-link (busy 97%)
 
 | Test target | Tests | What it checks |
 |---|---|---|
-| `unittests src/lib.rs` | 17 | Unit tests inside the modules |
+| `unittests src/lib.rs` | 18 | Unit tests inside the modules |
 | `tests/cli.rs` | 4 | The disagg-rs binary end to end |
 | `tests/golden.rs` | 2 | Recorded Python runs replayed bit for bit |
 | `tests/kernel.rs` | 2 | M/D/1 against theory; ordering property |
 | `tests/props.rs` | 2 | proptest invariants over random configurations |
 | `tests/pymath.rs` | 2 | fsum and floor division against CPython |
 | `pytests/` (pytest + Hypothesis) | 17 | Differential tests against the live Python simulator |
-| **Total** | **46** | |
+| **Total** | **47** | |
 
 ## 7. Coverage
 
@@ -102,30 +110,36 @@ hot-spot     stage=kv_wait -> kv-link (busy 97%)
 |---|---|---|---|
 | `src/bin/disagg-rs.rs` | 88.9% | 65.5% | 69.2% |
 | `src/disagg/engine.rs` | 98.5% | 97.2% | 95.2% |
-| `src/disagg/hardware.rs` | 97.3% | 98.9% | 100.0% |
+| `src/disagg/hardware.rs` | 97.6% | 99.1% | 100.0% |
 | `src/disagg/metrics.rs` | 98.0% | 97.1% | 97.1% |
 | `src/disagg/workload.rs` | 100.0% | 100.0% | 100.0% |
 | `src/kernel.rs` | 97.2% | 98.3% | 95.0% |
 | `src/pymath.rs` | 97.6% | 97.1% | 100.0% |
 | `src/pyrand.rs` | 100.0% | 100.0% | 100.0% |
 | `src/queueing.rs` | 100.0% | 100.0% | 100.0% |
-| **Total** | **97.5%** | **94.6%** | **95.2%** |
+| **Total** | **97.5%** | **94.7%** | **95.3%** |
 
 ## 8. Mutation testing
 
-cargo-mutants 27.1.0, whole crate except the PyO3 bindings (`-j 2 --timeout 30`), with the final tests:
+cargo-mutants 27.1.0, whole crate except the PyO3 bindings (`-j 2 --timeout 30`), with the final tests, rerun on 2026-10-03 after the cost-model correction:
 
 | File | Mutants | Caught | Missed | Timeout | Unviable | Score (caught / (caught + missed)) |
 |---|---|---|---|---|---|---|
 | `src/bin/disagg-rs.rs` | 4 | 3 | 0 | 0 | 1 | 100% |
 | `src/disagg/engine.rs` | 183 | 161 | 14 | 6 | 2 | 92% |
-| `src/disagg/hardware.rs` | 286 | 238 | 13 | 0 | 35 | 95% |
+| `src/disagg/hardware.rs` | 313 | 265 | 13 | 0 | 35 | 95% |
 | `src/disagg/metrics.rs` | 86 | 83 | 3 | 0 | 0 | 97% |
 | `src/disagg/workload.rs` | 50 | 49 | 0 | 0 | 1 | 100% |
 | `src/kernel.rs` | 26 | 23 | 0 | 0 | 3 | 100% |
 | `src/pymath.rs` | 99 | 88 | 10 | 1 | 0 | 90% |
 | `src/pyrand.rs` | 129 | 106 | 1 | 18 | 4 | 99% |
 | `src/queueing.rs` | 38 | 35 | 3 | 0 | 0 | 92% |
+| **Total** | **928** | **813** | **44** | **25** | **46** | **95%** |
+
+The same tests before the correction (the survivors are the same 44 mutants; the new weight-traffic code added mutants and every one is caught). Totals row:
+
+| File | Mutants | Caught | Missed | Timeout | Unviable | Score (caught / (caught + missed)) |
+|---|---|---|---|---|---|---|
 | **Total** | **901** | **786** | **44** | **25** | **46** | **95%** |
 
 The run before that differed by one fix: the M/D/1 test divided by the theoretical value, so a mutant making the theory negative passed. Its totals row:
