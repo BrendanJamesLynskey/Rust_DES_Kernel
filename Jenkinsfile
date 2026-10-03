@@ -26,8 +26,8 @@ pipeline {
 
     environment {
         CARGO_TERM_COLOR = 'never'
-        // env.HOME is null in Groovy and a PATH set here does not reach sh steps, so each step
-        // that needs cargo puts ~/.cargo/bin on its own PATH (set CARGO_BIN to override).
+        // HOME is resolved by each step's shell (a Groovy default built from env.HOME can become
+        // "null"), so each step that needs cargo puts ~/.cargo/bin on its own PATH (set CARGO_BIN to override).
         // Not named CARGO: cargo and maturin read $CARGO as the path of the cargo binary.
         WITH_CARGO = 'export PATH="${CARGO_BIN:-$HOME/.cargo/bin}:$PATH"; '
     }
