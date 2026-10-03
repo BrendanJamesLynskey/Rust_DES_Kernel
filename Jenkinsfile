@@ -25,39 +25,41 @@ pipeline {
     }
 
     environment {
-        PATH = "${env.HOME}/.cargo/bin:${env.PATH}"
         CARGO_TERM_COLOR = 'never'
+        // env.HOME is null in Groovy and a PATH set here does not reach sh steps, so each step
+        // that needs cargo puts ~/.cargo/bin on its own PATH (set CARGO_BIN to override)
+        CARGO = 'export PATH="${CARGO_BIN:-$HOME/.cargo/bin}:$PATH"; '
     }
 
     stages {
         stage('Lint') {
             steps {
-                sh 'cargo fmt --check'
-                sh 'cargo clippy --all-targets -- -D warnings'
-                sh 'cargo clippy --features python -- -D warnings'
+                sh(env.CARGO + 'cargo fmt --check')
+                sh(env.CARGO + 'cargo clippy --all-targets -- -D warnings')
+                sh(env.CARGO + 'cargo clippy --features python -- -D warnings')
             }
         }
 
         stage('Rust tests') {
             steps {
-                sh 'cargo nextest run --release --profile ci'
+                sh(env.CARGO + 'cargo nextest run --release --profile ci')
             }
         }
 
         stage('Python differential tests') {
             steps {
-                sh '''
+                sh(env.CARGO + '''
                     python3 -m venv .venv
                     .venv/bin/pip install -q maturin
                     .venv/bin/maturin develop --release -q -E dev
                     .venv/bin/pytest pytests --junitxml=pytest-junit.xml
-                '''
+                ''')
             }
         }
 
         stage('Coverage') {
             steps {
-                sh 'cargo llvm-cov --release --cobertura --output-path coverage.xml'
+                sh(env.CARGO + 'cargo llvm-cov --release --cobertura --output-path coverage.xml')
                 // cargo-llvm-cov lists each generic instantiation as its own method, and the
                 // Coverage plugin's Cobertura parser rejects duplicate names: skip them.
                 recordCoverage(tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']],
@@ -67,8 +69,8 @@ pipeline {
 
         stage('Benchmarks and performance gate') {
             steps {
-                sh 'cargo bench --bench engine -- --noplot --warm-up-time 1 --measurement-time 3'
-                sh ".venv/bin/python ci/perf_gate.py --margin ${params.PERF_MARGIN}"
+                sh(env.CARGO + 'cargo bench --bench engine -- --noplot --warm-up-time 1 --measurement-time 3')
+                sh ".venv/bin/python ci/perf_gate.py --margin ${params.PERF_MARGIN ?: '0.25'}"
             }
             post {
                 always { archiveArtifacts artifacts: 'perf_report.md', allowEmptyArchive: true }
@@ -77,7 +79,7 @@ pipeline {
 
         stage('Results') {
             steps {
-                sh '.venv/bin/python examples/results.py > /dev/null'
+                sh(env.CARGO + '.venv/bin/python examples/results.py > /dev/null')
                 archiveArtifacts artifacts: 'examples/results.md'
             }
         }
@@ -85,7 +87,7 @@ pipeline {
         stage('Nightly sweep') {
             when { expression { params.NIGHTLY } }
             steps {
-                sh "cargo run --release -q --bin disagg-rs -- --n 2000 --sweep ${params.SWEEP_RATES} > sweep.csv"
+                sh(env.CARGO + "cargo run --release -q --bin disagg-rs -- --n 2000 --sweep ${params.SWEEP_RATES ?: '1 2 3 4 5 6 8 10'} > sweep.csv")
                 sh 'cat sweep.csv'
                 archiveArtifacts artifacts: 'sweep.csv'
             }
