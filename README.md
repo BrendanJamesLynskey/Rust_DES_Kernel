@@ -155,6 +155,19 @@ is already about 36× faster than it), and the search/sweep helpers.
 
 ---
 
+## How the measurements are made
+
+The tools and methods this repository measures with are explained, with their overheads, accuracy and pitfalls, in [SimEng 12: Measurement Tools and Methods](https://brendanjameslynskey.github.io/SimEng_12_Measurement_Tools_and_Methods/) and the series glossaries:
+
+* [differential tests](https://brendanjameslynskey.github.io/LLM_Hub_Inference_Simulators/#g-differential)
+* [golden files](https://brendanjameslynskey.github.io/SimEng_12_Measurement_Tools_and_Methods/#card-agreement)
+* [code coverage (cargo llvm-cov)](https://brendanjameslynskey.github.io/SimEng_12_Measurement_Tools_and_Methods/#card-codecov)
+* [mutation testing (cargo-mutants)](https://brendanjameslynskey.github.io/SimEng_12_Measurement_Tools_and_Methods/#card-mutation)
+* [criterion benchmarks](https://brendanjameslynskey.github.io/SimEng_12_Measurement_Tools_and_Methods/#card-criterion)
+* [the M/D/1 check](https://brendanjameslynskey.github.io/LLM_Hub_Inference_Simulators/#g-queueing)
+* [the roofline cost model](https://brendanjameslynskey.github.io/LLM_Hub_Inference_Simulators/#g-roofline)
+* [Perfetto traces](https://brendanjameslynskey.github.io/LLM_Hub_Inference_Simulators/#g-perfetto)
+
 ## Part of
 
 The [Simulation Engineering Toolkit](https://github.com/BrendanJamesLynskey/SimEng_Hub_Toolkit)
