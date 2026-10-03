@@ -62,6 +62,9 @@ pipeline {
                     python3 -m venv .venv
                     .venv/bin/pip install -q maturin
                     .venv/bin/maturin develop --release -q -E dev
+                    # The venv outlives builds, and pip keeps an installed git dependency whose version
+                    # number has not changed, so fetch the Python reference's current commit every time.
+                    .venv/bin/pip install -q --force-reinstall --no-deps "disagg-sim @ git+https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim"
                     .venv/bin/pytest pytests --junitxml=pytest-junit.xml
                 ''')
             }
