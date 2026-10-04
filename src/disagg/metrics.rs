@@ -7,7 +7,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::engine::{Mode, SimResult};
+use super::engine::{Mode, Role, SimConfig, SimResult};
 use super::workload::Request;
 use crate::pymath::fmean;
 
@@ -174,7 +174,7 @@ pub fn summarise(res: &SimResult) -> Value {
         .map(|&(s, v)| (s, v / mean_e2e))
         .collect();
     let link = &res.link;
-    json!({
+    let summary = json!({
         "mode": if cfg.mode == Mode::Disagg { "disagg" } else { "colocated" },
         "requests": {"completed": done.len(), "rejected": res.rejected.len(), "measured": steady.len()},
         "latency_s": {"ttft": dist(&ttft), "tpot": dist(&tpot), "itl": dist(&itl), "e2e": dist(&e2e)},
@@ -204,7 +204,33 @@ pub fn summarise(res: &SimResult) -> Value {
         "littles_law": {"L_measured": num(little_l), "lambda_W": num(lam * w)},
         "energy": energy,
         "sim_time_s": num(h),
-    })
+    });
+    if cfg.heterogeneous() {
+        with_pools(summary, cfg)
+    } else {
+        summary
+    }
+}
+
+/// Insert `"pools"` after `"mode"`, as `summarise()` in Python does for heterogeneous pools.
+fn with_pools(summary: Value, cfg: &SimConfig) -> Value {
+    let mut pools = Map::new();
+    for role in [Role::Prefill, Role::Decode] {
+        let (dev, n) = cfg.pool(role);
+        pools.insert(role.as_str().into(), json!(format!("{n}x {}", dev.name)));
+    }
+    let Value::Object(fields) = summary else {
+        unreachable!("the summary is an object")
+    };
+    let mut out = Map::new();
+    for (k, v) in fields {
+        let after_mode = k == "mode";
+        out.insert(k, v);
+        if after_mode {
+            out.insert("pools".into(), Value::Object(pools.clone()));
+        }
+    }
+    Value::Object(out)
 }
 
 /// Static power for the whole run + dynamic energy of the work + link energy.
@@ -250,6 +276,13 @@ pub fn format_report(m: &Value) -> String {
         m["requests"]["rejected"],
         f(&m["sim_time_s"])
     )];
+    if let Some(p) = m.get("pools") {
+        out.push(format!(
+            "pools        prefill {}   decode {}",
+            p["prefill"].as_str().unwrap_or(""),
+            p["decode"].as_str().unwrap_or("")
+        ));
+    }
     out.push("latency (ms)       mean      p50      p90      p99".into());
     for k in ["ttft", "tpot", "itl", "e2e"] {
         let d = &m["latency_s"][k];
@@ -295,6 +328,26 @@ pub fn format_report(m: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pools_follow_mode_in_the_summary() {
+        use crate::disagg::{ConfigSpec, LengthDist, poisson_workload, simulate};
+        let spec = ConfigSpec {
+            decode_device: Some("a100".into()),
+            ..Default::default()
+        };
+        let wl = poisson_workload(
+            2.0,
+            20,
+            LengthDist::new(512.0, 0.5),
+            LengthDist::new(16.0, 0.5),
+            1,
+        );
+        let m = summarise(&simulate(spec.build().unwrap(), wl).unwrap());
+        let keys: Vec<&String> = m.as_object().unwrap().keys().collect();
+        assert_eq!(keys[..3], ["mode", "pools", "requests"]);
+        assert_eq!(m["pools"]["decode"], "4x A100-SXM");
+    }
 
     #[test]
     fn percentile_matches_numpy_linear() {

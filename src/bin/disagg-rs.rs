@@ -6,6 +6,7 @@
 //! disagg-rs --prefill 2 --link eth-25g --rate 6
 //! disagg-rs --sweep 2 3 4 5 6 8              # parallel rate sweep (rayon), CSV out
 //! disagg-rs --config cfg.json --json         # any config field, JSON summary out
+//! disagg-rs --model llama3-8b --devices 1 --prefill-device h100 --decode-device a100
 //! ```
 
 use std::process::ExitCode;
@@ -55,6 +56,21 @@ fn parse() -> Result<Args, String> {
             "--mode" => a.spec.mode = it.next().ok_or("--mode needs a value")?.clone(),
             "--model" => a.spec.model = it.next().ok_or("--model needs a value")?.clone(),
             "--device" => a.spec.device = it.next().ok_or("--device needs a value")?.clone(),
+            "--devices" => a.spec.devices_per_instance = num(it.next(), flag)? as i64,
+            "--prefill-device" => {
+                a.spec.prefill_device =
+                    Some(it.next().ok_or("--prefill-device needs a value")?.clone())
+            }
+            "--decode-device" => {
+                a.spec.decode_device =
+                    Some(it.next().ok_or("--decode-device needs a value")?.clone())
+            }
+            "--prefill-devices-per-instance" => {
+                a.spec.prefill_devices_per_instance = Some(num(it.next(), flag)? as i64)
+            }
+            "--decode-devices-per-instance" => {
+                a.spec.decode_devices_per_instance = Some(num(it.next(), flag)? as i64)
+            }
             "--link" => a.spec.link = it.next().ok_or("--link needs a value")?.clone(),
             "--channels" => a.spec.link_channels = num(it.next(), flag)? as usize,
             "--prefill" => a.spec.n_prefill = num(it.next(), flag)? as usize,
@@ -80,7 +96,7 @@ fn parse() -> Result<Args, String> {
                     "{}",
                     include_str!("disagg-rs.rs")
                         .lines()
-                        .take(9)
+                        .take(10)
                         .collect::<Vec<_>>()
                         .join("\n")
                 );

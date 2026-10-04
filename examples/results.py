@@ -3,9 +3,12 @@
     maturin develop --release
     cargo bench --bench engine          # optional: fills the criterion table
     python examples/results.py
+    python examples/results.py --keep-timings   # rerun everything except sections 2-4 (wall clock)
 
 Timings are wall-clock medians on whatever machine runs this; the header of
-results.md records which one.
+results.md records which one. ``--keep-timings`` copies sections 2-4 from the current
+results.md: use it when nothing on the timed path changed (2026-10-04: heterogeneous pools
+only choose each instance's device at construction).
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from pathlib import Path
 import simpy
 
 import rust_des
-from disagg_sim.hardware import LINKS
+from disagg_sim.hardware import A100_SXM, H100_SXM, LINKS, LLAMA3_8B
 from disagg_sim.metrics import summarise
 from disagg_sim.sim import SimConfig, simulate
 from disagg_sim.workload import LengthDist, poisson_workload
@@ -88,12 +91,24 @@ PARITY = {
     "Fixed lengths (simultaneous events)": SimConfig(n_prefill=2, n_decode=2,
                                                     link=replace(LINKS["ib-ndr"], channels=2)),
 }
+# Heterogeneous pools (2026-10-04): a device and a device count per pool.
+PARITY_HETERO = {
+    "8B: H100 prefill + A100 decode": SimConfig(model=LLAMA3_8B, devices_per_instance=1, prefill_device=H100_SXM,
+                                                decode_device=A100_SXM),
+    "8B: 2x A100 prefill + H100 decode, co-packaged optics": SimConfig(
+        model=LLAMA3_8B, devices_per_instance=1, n_prefill=2, prefill_device=A100_SXM, decode_device=H100_SXM,
+        link=LINKS["cpo-optical"]),
+    "70B: 4x H100 prefill + 8x A100 decode, per-pool caps + DVFS": SimConfig(
+        decode_device=A100_SXM, decode_devices_per_instance=8, prefill_power_cap_w=450.0, decode_power_cap_w=300.0,
+        dvfs=True),
+    "70B: explicit identical pools": SimConfig(prefill_device=H100_SXM, decode_device=H100_SXM),
+}
 
 
-def parity():
+def parity(table=None):
     lines = ["| Configuration | Requests | Timestamps compared | Differing | Summary dict identical |",
              "|---|---|---|---|---|"]
-    for name, cfg in PARITY.items():
+    for name, cfg in (table or PARITY).items():
         cv = 0.0 if name.startswith("Fixed") else 0.6
         wl = poisson_workload(5.0, 1000, LengthDist(2048, cv), LengthDist(128, cv), seed=3)
         rows = rows_of(wl)
@@ -314,6 +329,49 @@ def mutation():
     return text
 
 
+def rejected():
+    """Python-and-JS-only configurations, and the error each gets from the Rust side."""
+    from disagg_sim.hardware import KV_PRESETS, MODELS, OPTICAL_FFT, KVTransit
+    lines = ["| Configuration | Rust's answer |", "|---|---|"]
+    for name, cfg in [("Hyena-2 model", SimConfig(model=MODELS["llama3-8b-hyena"], devices_per_instance=1)),
+                      ("block-circulant model", SimConfig(model=MODELS["llama3-8b-hyena-circ"], devices_per_instance=1)),
+                      ("optical transform device in the prefill pool", SimConfig(prefill_device=OPTICAL_FFT)),
+                      ("fp8 KV compression in transit", SimConfig(kv_transit=KVTransit(KV_PRESETS["fp8"])))]:
+        try:
+            rust_des.simulate(cfg, [(0.1, 100, 10)])
+            lines.append(f"| {name} | ran (unexpected) |")
+        except ValueError as e:
+            lines.append(f"| {name} | `ValueError: {e}` |")
+    return "\n".join(lines)
+
+
+def hetero_mutation():
+    first = ROOT / "target" / "mutants-hetero-first" / "mutants.out" / "outcomes.json"
+    again = ROOT / "target" / "mutants-hetero" / "mutants.out" / "outcomes.json"
+    if not first.exists():
+        return "_Run cargo-mutants on the changed files first (see section 9)._"
+    t, ver = mutation_table(first)
+    text = (f"cargo-mutants {ver}, the changed modules only (`-j 2 --timeout 30 --file src/disagg/engine.rs --file "
+            f"src/disagg/hardware.rs --file src/disagg/metrics.rs`), run alone:\n\n{t}")
+    if again.exists():
+        d = json.loads(again.read_text())
+        n = {}
+        for o in d["outcomes"]:
+            if isinstance(o["scenario"], dict):
+                n[o["summary"]] = n.get(o["summary"], 0) + 1
+        old = ROOT / "target" / "mutants-final-run" / "mutants.out" / "missed.txt"
+        strip = lambda line: re.sub(r":\d+:\d+:", ":", line.strip())
+        known = {strip(x) for x in old.read_text().splitlines()} if old.exists() else set()
+        missed = [o for o in d["outcomes"] if o["summary"] == "MissedMutant"]
+        new_missed = [o for o in missed if strip(o["scenario"]["Mutant"]["name"]) not in known] if known else missed
+        text += (f"\n\nFour survivors were in the new code (three `||` in `SimConfig::heterogeneous`, and the position of"
+                 f" `pools` in the summary). Two tests were added for them, and `--iterate` re-tested the"
+                 f" {sum(n.values())} survivors and timeouts: {n.get('CaughtMutant', 0)} caught, {n.get('MissedMutant', 0)}"
+                 f" missed, {n.get('Timeout', 0)} timeouts. Of the missed, {len(missed) - len(new_missed)} also survived the"
+                 f" 2026-10-03 whole-crate run (section 8); {len(new_missed)} are new.")
+    return text
+
+
 def machine():
     cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")),
                platform.processor())
@@ -325,31 +383,19 @@ def machine():
             f"Python {platform.python_version()}; SimPy {simpy.__version__}; {rustc}; rust_des {rust_des.__version__}")
 
 
+def kept(section: str) -> str:
+    """A section of the current results.md, verbatim (``--keep-timings``)."""
+    m = re.search(rf"(## {section}\..*?)(?=\n## \d+\.|\Z)", OUT.read_text(), re.S)
+    return m[1].rstrip()
+
+
 def main():
-    speed_md, split_md = speed()
-    text = f"""# Recorded results
-
-Generated by `examples/results.py`. Every number in the README and in the
-Simulation Engineering Toolkit decks comes from this file.
-
-Machine: {machine()}.
-
-**2026-10-03: cost model corrected.** Disaggregated_Inference_Sim's closed form charged every step
-the whole input-embedding table and left out each new decode token's attention to itself; an
-operator trace of the real model (Torch_Sim_Frontend) found both. This port was corrected in the
-same way (`hardware.rs`), the golden fixture regenerated from the corrected Python, and every
-number below re-measured. The summary's single sort is now `sort_unstable_by` (identical output:
-values equal under `total_cmp` are bit-identical); unlike the Python original, this port always
-sorted once per distribution.
-
-## 1. Bit-exact parity with the Python simulator
-
-Every timestamp of every request, compared with `==`, and the whole summary
-dictionary (`disagg_sim.metrics.summarise`) compared for equality.
-
-{parity()}
-
-## 2. Speed
+    keep = "--keep-timings" in sys.argv
+    if keep:
+        timed = "\n\n".join(kept(n) for n in ("2", "3", "4"))
+    else:
+        speed_md, split_md = speed()
+        timed = f"""## 2. Speed
 
 Python runs have the time-series probe off (`sample_dt=1e9`), because the Rust
 engine has no probe. "Rust core" is the engine alone, timed inside Rust;
@@ -373,7 +419,33 @@ do not help it; processes do.
 
 ## 4. Criterion benchmarks (Rust only)
 
-{criterion()}
+{criterion()}"""
+    text = f"""# Recorded results
+
+Generated by `examples/results.py`. Every number in the README and in the
+Simulation Engineering Toolkit decks comes from this file.
+
+Machine: {machine()}.
+
+**2026-10-03: cost model corrected.** Disaggregated_Inference_Sim's closed form charged every step
+the whole input-embedding table and left out each new decode token's attention to itself; an
+operator trace of the real model (Torch_Sim_Frontend) found both. This port was corrected in the
+same way (`hardware.rs`), the golden fixture regenerated from the corrected Python, and every
+number below re-measured. The summary's single sort is now `sort_unstable_by` (identical output:
+values equal under `total_cmp` are bit-identical); unlike the Python original, this port always
+sorted once per distribution.
+
+**2026-10-04: heterogeneous pools.** Each pool can have its own device and device count (section 9).
+{"Sections 2-4 (wall clock) are kept from the 2026-10-03 run: pools only choose each instance's device when it is built, so nothing on the timed path changed. " if keep else ""}Everything else was rerun.
+
+## 1. Bit-exact parity with the Python simulator
+
+Every timestamp of every request, compared with `==`, and the whole summary
+dictionary (`disagg_sim.metrics.summarise`) compared for equality.
+
+{parity()}
+
+{timed}
 
 ## 5. Command-line example
 
@@ -392,6 +464,23 @@ do not help it; processes do.
 ## 8. Mutation testing
 
 {mutation()}
+
+## 9. Heterogeneous pools (2026-10-04)
+
+A different device, or device count, per pool (the Splitwise idea): H100 prefill with A100 decode, and so on.
+Ported bit-exactly; the same comparison as section 1, 1,000 requests each:
+
+{parity(PARITY_HETERO)}
+
+The Python package also has FFT-mixing model variants, an optical transform device and KV hand-off compression.
+They are **Python and JS only, not in the Rust port** (owner decision, 2026-10-04), and the Rust side rejects
+them by name rather than simulate something else:
+
+{rejected()}
+
+### Mutation testing of the changed modules
+
+{hetero_mutation()}
 """
     OUT.write_text(text)
     print(text)

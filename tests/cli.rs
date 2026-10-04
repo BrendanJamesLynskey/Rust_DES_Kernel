@@ -54,3 +54,33 @@ fn bad_arguments_exit_with_status_2() {
         Some(2)
     );
 }
+
+#[test]
+fn heterogeneous_pools_from_the_command_line() {
+    let out = disagg_rs(&[
+        "--n",
+        "40",
+        "--model",
+        "llama3-8b",
+        "--devices",
+        "1",
+        "--prefill-device",
+        "h100",
+        "--decode-device",
+        "a100",
+        "--decode-devices-per-instance",
+        "2",
+        "--prefill-devices-per-instance",
+        "1",
+    ]);
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("pools        prefill 1x H100-SXM   decode 2x A100-SXM"),
+        "{text}"
+    );
+    let rejected = disagg_rs(&["--prefill-device", "optical-fft"]);
+    assert_eq!(rejected.status.code(), Some(2));
+    let err = String::from_utf8(rejected.stderr).unwrap();
+    assert!(err.contains("not in the Rust port"), "{err}");
+}

@@ -59,6 +59,34 @@ pub struct SimConfig {
     pub prefill_power_cap_w: Option<f64>,
     pub decode_power_cap_w: Option<f64>,
     pub dvfs: bool,
+    /// Heterogeneous pools: `None` means "use `device` / `devices_per_instance`".
+    pub prefill_device: Option<Accelerator>,
+    pub decode_device: Option<Accelerator>,
+    pub prefill_devices_per_instance: Option<i64>,
+    pub decode_devices_per_instance: Option<i64>,
+}
+
+impl SimConfig {
+    /// True when any per-pool field is set (the summary then names each pool's devices).
+    pub fn heterogeneous(&self) -> bool {
+        self.prefill_device.is_some()
+            || self.decode_device.is_some()
+            || self.prefill_devices_per_instance.is_some()
+            || self.decode_devices_per_instance.is_some()
+    }
+
+    /// The device and devices per instance a pool's instances use (colocated: `device`).
+    pub fn pool(&self, role: Role) -> (&Accelerator, i64) {
+        let (dev, n) = match role {
+            Role::Prefill => (&self.prefill_device, self.prefill_devices_per_instance),
+            Role::Decode => (&self.decode_device, self.decode_devices_per_instance),
+            Role::Colocated => (&None, None),
+        };
+        (
+            dev.as_ref().unwrap_or(&self.device),
+            n.unwrap_or(self.devices_per_instance),
+        )
+    }
 }
 
 impl Default for SimConfig {
@@ -91,6 +119,12 @@ pub struct ConfigSpec {
     pub prefill_power_cap_w: Option<f64>,
     pub decode_power_cap_w: Option<f64>,
     pub dvfs: bool,
+    pub prefill_device: Option<String>,
+    pub decode_device: Option<String>,
+    pub prefill_devices_per_instance: Option<i64>,
+    pub decode_devices_per_instance: Option<i64>,
+    /// KV hand-off compression (Python and JS only): any value other than null is rejected.
+    pub kv_transit: Option<String>,
 }
 
 impl Default for ConfigSpec {
@@ -115,6 +149,11 @@ impl Default for ConfigSpec {
             prefill_power_cap_w: None,
             decode_power_cap_w: None,
             dvfs: false,
+            prefill_device: None,
+            decode_device: None,
+            prefill_devices_per_instance: None,
+            decode_devices_per_instance: None,
+            kv_transit: None,
         }
     }
 }
@@ -122,6 +161,27 @@ impl Default for ConfigSpec {
 impl ConfigSpec {
     pub fn build(&self) -> Result<SimConfig, ConfigError> {
         let unknown = |what: &str, v: &str| ConfigError(format!("unknown {what} {v:?}"));
+        let names = [
+            Some(&self.model),
+            Some(&self.device),
+            self.prefill_device.as_ref(),
+            self.decode_device.as_ref(),
+        ];
+        for key in names.into_iter().flatten() {
+            if let Some(why) = hardware::python_js_only(key) {
+                return Err(ConfigError(format!("{key} {why}")));
+            }
+        }
+        if let Some(t) = &self.kv_transit {
+            return Err(ConfigError(format!(
+                "kv_transit {t:?}: KV hand-off compression is Python and JS only, not in the Rust port"
+            )));
+        }
+        let dev = |key: &Option<String>| -> Result<Option<Accelerator>, ConfigError> {
+            key.as_ref()
+                .map(|k| hardware::device(k).ok_or_else(|| unknown("device", k)))
+                .transpose()
+        };
         let mode = match self.mode.as_str() {
             "disagg" => Mode::Disagg,
             "colocated" => Mode::Colocated,
@@ -156,10 +216,15 @@ impl ConfigSpec {
             prefill_power_cap_w: self.prefill_power_cap_w,
             decode_power_cap_w: self.decode_power_cap_w,
             dvfs: self.dvfs,
+            prefill_device: dev(&self.prefill_device)?,
+            decode_device: dev(&self.decode_device)?,
+            prefill_devices_per_instance: self.prefill_devices_per_instance,
+            decode_devices_per_instance: self.decode_devices_per_instance,
         })
     }
 }
 
+/// Which pool an instance belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Prefill,
@@ -168,7 +233,7 @@ pub enum Role {
 }
 
 impl Role {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Role::Prefill => "prefill",
             Role::Decode => "decode",
@@ -280,15 +345,18 @@ impl Simulation {
                 Role::Colocated => None,
             }
             .or(cfg.power_cap_w);
+            let (device, n) = cfg.pool(role);
             let cost = CostModel::new(
                 cfg.model.clone(),
-                cfg.device.clone(),
-                cfg.devices_per_instance,
+                device.clone(),
+                n,
                 cfg.step_overhead,
                 cap,
                 cfg.dvfs,
             )?;
-            let kv_cap = cost.kv_capacity_tokens()?;
+            let kv_cap = cost
+                .kv_capacity_tokens()
+                .map_err(|e| ConfigError(format!("{} pool: {e}", role.as_str())))?;
             inst.push(Instance {
                 role,
                 name: format!("{}-{idx}", role.as_str()),
@@ -715,6 +783,124 @@ mod tests {
         let mut s = crate::kernel::Scheduler::new();
         s.schedule_now(Ev::Stop);
         assert_eq!(s.entry_size(), 40);
+    }
+
+    #[test]
+    fn python_and_js_only_features_are_rejected_by_name() {
+        for (spec, needle) in [
+            (
+                ConfigSpec {
+                    model: "llama3-8b-hyena".into(),
+                    ..Default::default()
+                },
+                "FFT-mixing",
+            ),
+            (
+                ConfigSpec {
+                    prefill_device: Some("optical-fft".into()),
+                    ..Default::default()
+                },
+                "transform engine",
+            ),
+            (
+                ConfigSpec {
+                    device: "optical-fft-small".into(),
+                    ..Default::default()
+                },
+                "transform engine",
+            ),
+            (
+                ConfigSpec {
+                    kv_transit: Some("fp8 at transit".into()),
+                    ..Default::default()
+                },
+                "compression",
+            ),
+        ] {
+            let err = spec.build().unwrap_err().to_string();
+            assert!(
+                err.contains(needle) && err.contains("not in the Rust port"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_pool_gets_its_own_device() {
+        let spec = ConfigSpec {
+            model: "llama3-8b".into(),
+            devices_per_instance: 1,
+            prefill_device: Some("h100".into()),
+            decode_device: Some("a100".into()),
+            decode_devices_per_instance: Some(2),
+            ..Default::default()
+        };
+        let cfg = spec.build().unwrap();
+        assert!(cfg.heterogeneous() && !SimConfig::default().heterogeneous());
+        assert_eq!(cfg.pool(Role::Prefill).0.name, "H100-SXM");
+        assert_eq!(
+            cfg.pool(Role::Decode),
+            (&hardware::device("a100").unwrap(), 2)
+        );
+        assert_eq!(cfg.pool(Role::Colocated).1, 1);
+        let wl = poisson_workload(
+            2.0,
+            20,
+            LengthDist::new(512.0, 0.5),
+            LengthDist::new(32.0, 0.5),
+            3,
+        );
+        let res = simulate(cfg, wl).unwrap();
+        let names: Vec<_> = res
+            .instances
+            .iter()
+            .map(|i| (i.cost.device.name, i.cost.n_devices))
+            .collect();
+        assert_eq!(names, [("H100-SXM", 1), ("A100-SXM", 2)]);
+        let bad = ConfigSpec {
+            decode_devices_per_instance: Some(1),
+            ..Default::default()
+        };
+        let err = simulate(
+            bad.build().unwrap(),
+            poisson_workload(
+                1.0,
+                2,
+                LengthDist::new(64.0, 0.0),
+                LengthDist::new(4.0, 0.0),
+                1,
+            ),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.starts_with("decode pool:"), "{err}");
+    }
+
+    #[test]
+    fn any_one_per_pool_field_makes_the_pools_heterogeneous() {
+        let base = SimConfig::default();
+        let h100 = hardware::device("h100");
+        for cfg in [
+            SimConfig {
+                prefill_device: h100.clone(),
+                ..base.clone()
+            },
+            SimConfig {
+                decode_device: h100.clone(),
+                ..base.clone()
+            },
+            SimConfig {
+                prefill_devices_per_instance: Some(4),
+                ..base.clone()
+            },
+            SimConfig {
+                decode_devices_per_instance: Some(4),
+                ..base.clone()
+            },
+        ] {
+            assert!(cfg.heterogeneous());
+        }
+        assert!(!base.heterogeneous());
     }
 
     #[test]

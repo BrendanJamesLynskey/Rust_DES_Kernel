@@ -27,6 +27,14 @@ simulator core across languages *without changing a single answer*:
   Python threads run simulations in parallel (3.0× on 4 cores). All numbers are in
   [`examples/results.md`](examples/results.md).
 
+> **Heterogeneous pools, 2026-10-04.** Each pool can have its own device and device count
+> (`--prefill-device h100 --decode-device a100`), ported bit-exactly: four pool mixes × 1,000 requests,
+> 0 differing timestamps, identical summaries ([`examples/results.md`](examples/results.md), section 9).
+> The Python package also gained FFT-mixing model variants, an optical transform device and KV hand-off
+> compression for the [Fourier Optics for Inference](https://github.com/BrendanJamesLynskey/LLM_Hub_Fourier_Optics_Inference)
+> series. Those are **Python and JS only, not in the Rust port** (owner decision), and this port rejects
+> them by name with a clear error rather than simulate something else.
+
 > **Cost model corrected on 2026-10-03.** The Python original charged every step the whole
 > input-embedding table and left out each decode token's attention to itself. An operator
 > trace of the real model found both
@@ -45,6 +53,7 @@ simulator core across languages *without changing a single answer*:
 cargo test --release                       # unit, golden parity, proptest, kernel vs theory
 cargo run --release --bin disagg-rs -- --prefill 2 --rate 6 --link eth-25g
 cargo run --release --bin disagg-rs -- --sweep 2 3 4 5 6 8      # parallel sweep (rayon), CSV
+cargo run --release --bin disagg-rs -- --model llama3-8b --devices 1 --prefill-device h100 --decode-device a100
 cargo bench --bench engine                 # criterion
 
 # Python
@@ -98,8 +107,8 @@ hot-spot     stage=kv_wait -> kv-link (busy 97%)
 | Unit | `src/**` `#[cfg(test)]` | Kernel ordering, cost-model regimes, CPython's random stream, `fsum`, floor division |
 | Analytic | `tests/kernel.rs` | The M/D/1 mean wait matches Pollaczek–Khinchine within 3% |
 | Property-based | `tests/kernel.rs`, `tests/props.rs` (proptest) | For random configurations: events pop in order; every request finishes or is rejected; timestamps never go backwards; stages sum to end-to-end latency; KV reservations all return; TDP and caps are never exceeded; Little's law holds exactly; runs are deterministic |
-| Golden | `tests/golden.rs`, `tests/pymath.rs` | Fourteen recorded Python runs (every preset, link and power-cap mode, ties, bursts, rejections) replayed with identical timestamps and summaries; four Python-generated workloads reproduced by the Rust generator; `fsum` and float `//` against 1,416 CPython-computed cases |
-| Differential | `pytests/test_differential.py` | Ten named configurations, tie-heavy and rejection-heavy workloads, and Hypothesis-generated configurations, all bit-identical to the live Python simulator |
+| Golden | `tests/golden.rs`, `tests/pymath.rs` | Sixteen recorded Python runs (every preset, link and power-cap mode, ties, bursts, rejections, and two heterogeneous-pool mixes) replayed with identical timestamps and summaries; four Python-generated workloads reproduced by the Rust generator; `fsum` and float `//` against 1,416 CPython-computed cases |
+| Differential | `pytests/test_differential.py` | Fifteen named configurations (five with heterogeneous pools), tie-heavy and rejection-heavy workloads, Hypothesis-generated configurations (pool mixes included), all bit-identical to the live Python simulator; and the Python-and-JS-only features rejected by name |
 | Performance | `benches/`, `ci/perf_gate.py` | Criterion timings, gated against a stored baseline |
 | Mutation | `cargo mutants` | Do the tests notice deliberate bugs? Survivors led to `tests/pymath.rs`, the kernel's equality test and the tight-KV golden cases |
 
@@ -122,7 +131,7 @@ python examples/results.py
 
 Machine: Intel i7-3770 (4 cores, 8 threads), Python 3.12, SimPy 4.1.2, rustc 1.99.
 Parity: 6 configurations × 1,000 requests, 0 differing timestamps, identical summaries.
-Tests: 47 (30 Rust, 17 Python); line coverage 97.5%; mutation score 95% (813 of 857 viable, non-timeout mutants caught; rerun after the 2026-10-03 correction).
+Tests: 63 (35 Rust, 28 Python); line coverage 97.6%; mutation score 95% (813 of 857 viable, non-timeout mutants caught; rerun after the 2026-10-03 correction). The 2026-10-04 heterogeneous-pools change was mutation-tested on the changed modules alone: 526 of 554 caught (95%); every remaining survivor also survived the 2026-10-03 run. The speed figures were not re-measured: pools only choose each instance's device at construction, and the Python baseline's run time is unchanged within run-to-run noise.
 
 ---
 
@@ -149,7 +158,10 @@ Tests: 47 (30 Rust, 17 Python); line coverage 97.5%; mutation score 95% (813 of 
 
 ## Not ported (yet)
 
-The time-series probe and Chrome trace export (passive in Python, so they do
+By decision, not by omission: the FFT-mixing model variants, the optical transform device and KV hand-off
+compression (2026-10-04) are Python and JS only; configurations that use them are rejected.
+
+Not yet: the time-series probe and Chrome trace export (passive in Python, so they do
 not affect results), the exact fast path (`FastDecodeInstance`; the Rust baseline
 is already about 36× faster than it), and the search/sweep helpers.
 

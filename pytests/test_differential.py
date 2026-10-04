@@ -18,7 +18,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import rust_des
-from disagg_sim.hardware import A100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B
+from disagg_sim.hardware import A100_SXM, H100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B
 from disagg_sim.metrics import summarise
 from disagg_sim.sim import SimConfig, simulate
 from disagg_sim.workload import LengthDist, poisson_workload
@@ -68,6 +68,20 @@ CASES = {
                                  link=LINKS["pcie5"], n_prefill=2),
     "hypothetical optical part": dict(device=HYPOTHETICAL_OPTICAL),
     "3P1D, NVLink, tight prefill budget": dict(n_prefill=3, link=LINKS["nvlink4"], max_prefill_tokens=4096),
+    # Heterogeneous pools (2026-10-04): a different device, or device count, per pool.
+    "8B: H100 prefill + A100 decode": dict(model=LLAMA3_8B, devices_per_instance=1, prefill_device=H100_SXM,
+                                           decode_device=A100_SXM),
+    "8B: 2x A100 prefill + H100 decode, co-packaged optics": dict(
+        model=LLAMA3_8B, devices_per_instance=1, n_prefill=2, prefill_device=A100_SXM, decode_device=H100_SXM,
+        link=LINKS["cpo-optical"]),
+    "70B: 4x H100 prefill + 8x A100 decode, per-pool caps": dict(
+        decode_device=A100_SXM, decode_devices_per_instance=8, prefill_power_cap_w=450.0, decode_power_cap_w=300.0,
+        dvfs=True),
+    "70B: explicit identical pools": dict(prefill_device=H100_SXM, decode_device=H100_SXM,
+                                          prefill_devices_per_instance=4, decode_devices_per_instance=4),
+    "8B: optical-MAC prefill + A100 decode over 25 GbE": dict(
+        model=LLAMA3_8B, devices_per_instance=1, prefill_device=HYPOTHETICAL_OPTICAL, decode_device=A100_SXM,
+        link=LINKS["eth-25g"]),
 }
 
 
@@ -138,10 +152,13 @@ def test_workload_generator_reproduces_python_random():
     rate=st.floats(0.5, 12.0), seed=st.integers(0, 10_000),
     cap=st.one_of(st.none(), st.floats(200.0, 700.0)), dvfs=st.booleans(),
     prompt_cv=st.sampled_from([0.0, 0.3, 0.8]),
+    pools=st.sampled_from([(None, None, None), (A100_SXM, None, None), (None, A100_SXM, 8), (A100_SXM, H100_SXM, None)]),
 )
-def test_random_configurations_match(mode, n_a, n_b, link, channels, rate, seed, cap, dvfs, prompt_cv):
+def test_random_configurations_match(mode, n_a, n_b, link, channels, rate, seed, cap, dvfs, prompt_cv, pools):
+    pre, dec, n_dec = pools
     cfg = SimConfig(mode=mode, n_prefill=n_a, n_decode=n_b, n_colocated=n_a,
-                    link=replace(LINKS[link], channels=channels), power_cap_w=cap, dvfs=dvfs)
+                    link=replace(LINKS[link], channels=channels), power_cap_w=cap, dvfs=dvfs,
+                    prefill_device=pre, decode_device=dec, decode_devices_per_instance=n_dec)
     py, rs = run_both(cfg, rate=rate, n=120, prompt=(1500, prompt_cv), seed=seed)
     if cap is None or GLIBC:
         assert_identical(py, rs)
@@ -150,6 +167,38 @@ def test_random_configurations_match(mode, n_a, n_b, link, channels, rate, seed,
             for r, s in zip(py.requests, rs.stamps):
                 a = getattr(r, name)
                 assert (a is None and s[j] is None) or a == pytest.approx(s[j], rel=1e-12)
+
+
+def test_heterogeneous_pools_with_identical_devices_equal_the_homogeneous_run():
+    """In both languages: naming the same device per pool changes nothing but the 'pools' key."""
+    base = SimConfig()
+    same = replace(base, prefill_device=H100_SXM, decode_device=H100_SXM)
+    _, a = run_both(base)
+    py, b = run_both(same)
+    assert a.stamps == b.stamps
+    assert b.summary.pop("pools") == {"prefill": "4x H100-SXM", "decode": "4x H100-SXM"}
+    assert a.summary == b.summary
+    assert "pools" in summarise(py)
+
+
+@pytest.mark.parametrize("cfg, needle", [
+    ({"model": "llama3-8b-hyena"}, "FFT-mixing"),
+    ({"model": "llama3-8b-hyena-circ", "devices_per_instance": 1}, "FFT-mixing"),
+    ({"prefill_device": "optical-fft"}, "transform engine"),
+    ({"kv_transit": "fp8 at transit"}, "compression"),
+])
+def test_python_and_js_only_features_are_rejected(cfg, needle):
+    with pytest.raises(ValueError, match=f"{needle}.*not in the Rust port"):
+        rust_des.simulate(cfg, [(0.1, 100, 10)])
+
+
+def test_python_and_js_only_features_are_rejected_from_a_simconfig():
+    from disagg_sim.hardware import KV_PRESETS, MODELS, OPTICAL_FFT, KVTransit
+    for cfg in (SimConfig(model=MODELS["llama3-8b-hybrid"], devices_per_instance=1),
+                SimConfig(prefill_device=OPTICAL_FFT),
+                SimConfig(kv_transit=KVTransit(KV_PRESETS["fp8"]))):
+        with pytest.raises(ValueError, match="not in the Rust port"):
+            rust_des.simulate(cfg, [(0.1, 100, 10)])
 
 
 def test_errors_cross_the_boundary_as_value_errors():

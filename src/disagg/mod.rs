@@ -5,13 +5,15 @@
 //! The port is *bit-exact*: for the same configuration and workload it stamps
 //! every request with the same timestamps as the SimPy model, and `summarise`
 //! returns the same numbers (tested in `tests/golden.rs` and
-//! `python/tests/test_differential.py`).
+//! `pytests/test_differential.py`). Heterogeneous pools (a different device per pool) are
+//! ported; the FFT-mixing models, the optical transform engine and KV hand-off compression
+//! are Python and JS only, and a configuration that asks for them is rejected.
 
 pub mod engine;
 pub mod hardware;
 pub mod metrics;
 pub mod workload;
 
-pub use engine::{ConfigSpec, Mode, SimConfig, SimResult, Simulation, simulate};
+pub use engine::{ConfigSpec, Mode, Role, SimConfig, SimResult, Simulation, simulate};
 pub use metrics::{format_report, summarise};
 pub use workload::{LengthDist, Request, poisson_workload};

@@ -13,6 +13,9 @@ number below re-measured. The summary's single sort is now `sort_unstable_by` (i
 values equal under `total_cmp` are bit-identical); unlike the Python original, this port always
 sorted once per distribution.
 
+**2026-10-04: heterogeneous pools.** Each pool can have its own device and device count (section 9).
+Sections 2-4 (wall clock) are kept from the 2026-10-03 run: pools only choose each instance's device when it is built, so nothing on the timed path changed. Everything else was rerun.
+
 ## 1. Bit-exact parity with the Python simulator
 
 Every timestamp of every request, compared with `==`, and the whole summary
@@ -93,14 +96,14 @@ hot-spot     stage=kv_wait -> kv-link (busy 97%)
 
 | Test target | Tests | What it checks |
 |---|---|---|
-| `unittests src/lib.rs` | 18 | Unit tests inside the modules |
-| `tests/cli.rs` | 4 | The disagg-rs binary end to end |
+| `unittests src/lib.rs` | 22 | Unit tests inside the modules |
+| `tests/cli.rs` | 5 | The disagg-rs binary end to end |
 | `tests/golden.rs` | 2 | Recorded Python runs replayed bit for bit |
 | `tests/kernel.rs` | 2 | M/D/1 against theory; ordering property |
 | `tests/props.rs` | 2 | proptest invariants over random configurations |
 | `tests/pymath.rs` | 2 | fsum and floor division against CPython |
-| `pytests/` (pytest + Hypothesis) | 17 | Differential tests against the live Python simulator |
-| **Total** | **47** | |
+| `pytests/` (pytest + Hypothesis) | 28 | Differential tests against the live Python simulator |
+| **Total** | **63** | |
 
 ## 7. Coverage
 
@@ -108,16 +111,16 @@ hot-spot     stage=kv_wait -> kv-link (busy 97%)
 
 | File | Lines | Regions | Functions |
 |---|---|---|---|
-| `src/bin/disagg-rs.rs` | 88.9% | 65.5% | 69.2% |
-| `src/disagg/engine.rs` | 98.5% | 97.2% | 95.2% |
-| `src/disagg/hardware.rs` | 97.6% | 99.1% | 100.0% |
-| `src/disagg/metrics.rs` | 98.0% | 97.1% | 97.1% |
+| `src/bin/disagg-rs.rs` | 89.8% | 69.1% | 69.2% |
+| `src/disagg/engine.rs` | 97.9% | 96.7% | 92.3% |
+| `src/disagg/hardware.rs` | 99.2% | 99.4% | 100.0% |
+| `src/disagg/metrics.rs` | 97.6% | 97.0% | 97.3% |
 | `src/disagg/workload.rs` | 100.0% | 100.0% | 100.0% |
 | `src/kernel.rs` | 97.2% | 98.3% | 95.0% |
 | `src/pymath.rs` | 97.6% | 97.1% | 100.0% |
 | `src/pyrand.rs` | 100.0% | 100.0% | 100.0% |
 | `src/queueing.rs` | 100.0% | 100.0% | 100.0% |
-| **Total** | **97.5%** | **94.7%** | **95.3%** |
+| **Total** | **97.6%** | **94.9%** | **94.5%** |
 
 ## 8. Mutation testing
 
@@ -172,3 +175,39 @@ The first run, before `tests/pymath.rs`, the kernel's equality test and the tigh
 | `src/pyrand.rs` | 129 | 93 | 14 | 18 | 4 | 87% |
 | `src/queueing.rs` | 38 | 31 | 7 | 0 | 0 | 82% |
 | **Total** | **290** | **196** | **68** | **19** | **7** | **74%** |
+
+## 9. Heterogeneous pools (2026-10-04)
+
+A different device, or device count, per pool (the Splitwise idea): H100 prefill with A100 decode, and so on.
+Ported bit-exactly; the same comparison as section 1, 1,000 requests each:
+
+| Configuration | Requests | Timestamps compared | Differing | Summary dict identical |
+|---|---|---|---|---|
+| 8B: H100 prefill + A100 decode | 1,000 | 6,000 | 0 | yes |
+| 8B: 2x A100 prefill + H100 decode, co-packaged optics | 1,000 | 6,000 | 0 | yes |
+| 70B: 4x H100 prefill + 8x A100 decode, per-pool caps + DVFS | 1,000 | 6,000 | 0 | yes |
+| 70B: explicit identical pools | 1,000 | 6,000 | 0 | yes |
+
+The Python package also has FFT-mixing model variants, an optical transform device and KV hand-off compression.
+They are **Python and JS only, not in the Rust port** (owner decision, 2026-10-04), and the Rust side rejects
+them by name rather than simulate something else:
+
+| Configuration | Rust's answer |
+|---|---|
+| Hyena-2 model | `ValueError: llama3-8b-hyena is an FFT-mixing model variant: Python and JS only, not in the Rust port` |
+| block-circulant model | `ValueError: llama3-8b-hyena-circ is an FFT-mixing model variant: Python and JS only, not in the Rust port` |
+| optical transform device in the prefill pool | `ValueError: optical-fft has an optical transform engine: Python and JS only, not in the Rust port` |
+| fp8 KV compression in transit | `ValueError: kv_transit "fp8 at transit": KV hand-off compression is Python and JS only, not in the Rust port` |
+
+### Mutation testing of the changed modules
+
+cargo-mutants 27.1.0, the changed modules only (`-j 2 --timeout 30 --file src/disagg/engine.rs --file src/disagg/hardware.rs --file src/disagg/metrics.rs`), run alone:
+
+| File | Mutants | Caught | Missed | Timeout | Unviable | Score (caught / (caught + missed)) |
+|---|---|---|---|---|---|---|
+| `src/disagg/engine.rs` | 191 | 163 | 17 | 6 | 5 | 91% |
+| `src/disagg/hardware.rs` | 321 | 275 | 11 | 0 | 35 | 96% |
+| `src/disagg/metrics.rs` | 88 | 84 | 4 | 0 | 0 | 95% |
+| **Total** | **600** | **522** | **32** | **6** | **40** | **94%** |
+
+Four survivors were in the new code (three `||` in `SimConfig::heterogeneous`, and the position of `pools` in the summary). Two tests were added for them, and `--iterate` re-tested the 38 survivors and timeouts: 4 caught, 28 missed, 6 timeouts. Of the missed, 28 also survived the 2026-10-03 whole-crate run (section 8); 0 are new.

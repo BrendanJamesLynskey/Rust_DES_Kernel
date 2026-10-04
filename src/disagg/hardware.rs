@@ -96,6 +96,25 @@ pub const LLAMA3_70B: ModelSpec = ModelSpec {
     kv_bytes: 2.0,
 };
 
+/// Models, devices and features of the Python package that this port deliberately does not
+/// have (owner decision, 2026-10-04): the FFT-mixing model variants, the optical transform
+/// engine and KV hand-off compression. A configuration that names one is rejected with this
+/// reason rather than silently simulated as something else.
+pub fn python_js_only(key: &str) -> Option<&'static str> {
+    match key {
+        "llama3-8b-hyena"
+        | "llama3-8b-hyena-dist"
+        | "llama3-8b-hybrid"
+        | "llama3-8b-hyena-circ" => {
+            Some("is an FFT-mixing model variant: Python and JS only, not in the Rust port")
+        }
+        "optical-fft" | "optical-fft-small" => {
+            Some("has an optical transform engine: Python and JS only, not in the Rust port")
+        }
+        _ => None,
+    }
+}
+
 pub fn model(key: &str) -> Option<ModelSpec> {
     match key {
         "llama3-8b" => Some(LLAMA3_8B),
@@ -180,6 +199,8 @@ pub fn link(key: &str) -> Option<Link> {
         "pcie5" => ("PCIe Gen5 x16", 64.0 * GB, 5e-6, 6.0),
         "eth-100g" => ("100 GbE", 12.5 * GB, 20e-6, 15.0),
         "eth-25g" => ("25 GbE", 3.125 * GB, 20e-6, 15.0),
+        // photonic interconnect (not Fourier optics): illustrative round numbers
+        "cpo-optical" => ("Co-packaged optics (illustrative)", 200.0 * GB, 5e-6, 3.0),
         _ => return None,
     };
     Some(Link {
