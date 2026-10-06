@@ -33,7 +33,10 @@ simulator core across languages *without changing a single answer*:
 > The Python package also gained FFT-mixing model variants, an optical transform device and KV hand-off
 > compression for the [Fourier Optics for Inference](https://github.com/BrendanJamesLynskey/LLM_Hub_Fourier_Optics_Inference)
 > series. Those are **Python and JS only, not in the Rust port** (owner decision), and this port rejects
-> them by name with a clear error rather than simulate something else.
+> them by name with a clear error rather than simulate something else. The same holds for the
+> scheduling and KV-memory levers added on 2026-10-06 (batching policy and chunked prefill, paged KV
+> with preemption, prefix caching, closed-loop sessions, and their validation presets `mistral-7b`,
+> `yi-34b`, `opt-13b` and `a100-40g`): a `SimConfig` that turns any of them on is rejected.
 
 > **Cost model corrected on 2026-10-03.** The Python original charged every step the whole
 > input-embedding table and left out each decode token's attention to itself. An operator
@@ -159,7 +162,11 @@ Tests: 63 (35 Rust, 28 Python); line coverage 97.6%; mutation score 95% (813 of 
 ## Not ported (yet)
 
 By decision, not by omission: the FFT-mixing model variants, the optical transform device and KV hand-off
-compression (2026-10-04) are Python and JS only; configurations that use them are rejected.
+compression (2026-10-04) are Python and JS only; configurations that use them are rejected. So are the
+2026-10-06 levers: colocated batching policies (`batch_policy`, `max_num_batched_tokens`), KV memory
+policies (`kv_policy`, paged blocks with recompute or swap preemption), prefix caching and closed-loop
+sessions (`Request.after`), with the error "... are Python and JS only, not in the Rust port". Settings
+that are inert on their own (`kv_block_size`, `preemption`, `host_link`) still cross.
 
 Not yet: the time-series probe and Chrome trace export (passive in Python, so they do
 not affect results), the exact fast path (`FastDecodeInstance`; the Rust baseline

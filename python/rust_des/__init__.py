@@ -37,7 +37,8 @@ def spec_from_simconfig(cfg) -> dict:
     one of the named presets is an error rather than a silent approximation.
     Heterogeneous pools cross as device names. The FFT-mixing models, the optical
     transform devices and KV hand-off compression cross by name too, and the Rust
-    side rejects them (they are Python and JS only).
+    side rejects them (they are Python and JS only); so do the brief-20A1 levers
+    (batching policy, KV memory policy, prefix caching), as one ``scheduler`` field.
     """
     from disagg_sim.hardware import ACCELERATORS, LINKS, MODELS
 
@@ -76,7 +77,16 @@ def spec_from_simconfig(cfg) -> dict:
         "prefill_devices_per_instance": getattr(cfg, "prefill_devices_per_instance", None),
         "decode_devices_per_instance": getattr(cfg, "decode_devices_per_instance", None),
         "kv_transit": None if tr is None else f"{tr.compression.name} at {tr.where}",
+        # batching policy, KV memory policy and prefix caching (brief 20A1): the Rust side rejects them
+        "scheduler": _levers(cfg),
     }
+
+
+def _levers(cfg) -> str | None:
+    if not getattr(cfg, "scheduled", False):
+        return None
+    return (f"batch_policy={cfg.batch_policy}, max_num_batched_tokens={cfg.max_num_batched_tokens}, "
+            f"kv_policy={cfg.kv_policy}, prefix_caching={cfg.prefix_caching}")
 
 
 def _spec(cfg) -> str:
@@ -84,6 +94,8 @@ def _spec(cfg) -> str:
 
 
 def _rows(rows) -> list[tuple]:
+    if any(getattr(r, "after", None) is not None for r in rows):
+        raise ValueError("closed-loop sessions (Request.after) are Python and JS only, not in the Rust port")
     return [(r.arrival, r.prompt_len, r.output_len) if hasattr(r, "arrival") else tuple(r) for r in rows]
 
 

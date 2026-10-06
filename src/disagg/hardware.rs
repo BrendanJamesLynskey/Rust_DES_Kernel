@@ -111,6 +111,9 @@ pub fn python_js_only(key: &str) -> Option<&'static str> {
         "optical-fft" | "optical-fft-small" => {
             Some("has an optical transform engine: Python and JS only, not in the Rust port")
         }
+        "mistral-7b" | "yi-34b" | "opt-13b" | "a100-40g" => Some(
+            "is a validation preset for the batching and KV-memory levers: Python and JS only, not in the Rust port",
+        ),
         _ => None,
     }
 }

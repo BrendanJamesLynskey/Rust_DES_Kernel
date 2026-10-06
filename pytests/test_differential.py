@@ -186,6 +186,8 @@ def test_heterogeneous_pools_with_identical_devices_equal_the_homogeneous_run():
     ({"model": "llama3-8b-hyena-circ", "devices_per_instance": 1}, "FFT-mixing"),
     ({"prefill_device": "optical-fft"}, "transform engine"),
     ({"kv_transit": "fp8 at transit"}, "compression"),
+    ({"scheduler": "batch_policy=chunked"}, "prefix caching"),
+    ({"model": "mistral-7b"}, "validation preset"),
 ])
 def test_python_and_js_only_features_are_rejected(cfg, needle):
     with pytest.raises(ValueError, match=f"{needle}.*not in the Rust port"):
@@ -199,6 +201,29 @@ def test_python_and_js_only_features_are_rejected_from_a_simconfig():
                 SimConfig(kv_transit=KVTransit(KV_PRESETS["fp8"]))):
         with pytest.raises(ValueError, match="not in the Rust port"):
             rust_des.simulate(cfg, [(0.1, 100, 10)])
+
+
+@pytest.mark.parametrize("kw", [dict(mode="colocated", batch_policy="chunked", max_num_batched_tokens=512),
+                                dict(mode="colocated", kv_policy="paged"), dict(mode="colocated", prefix_caching=True),
+                                dict(mode="colocated", max_num_batched_tokens=8192)])
+def test_scheduler_levers_are_rejected_from_a_simconfig(kw):
+    """Brief 20A1's batching, KV-memory and prefix-caching levers are Python and JS only."""
+    with pytest.raises(ValueError, match="prefix caching are Python and JS only"):
+        rust_des.simulate(SimConfig(**kw), [(0.1, 100, 10)])
+
+
+def test_closed_loop_sessions_are_rejected():
+    from disagg_sim.workload import LengthDist, chat_sessions
+    reqs = chat_sessions(1.0, 8, LengthDist(100), LengthDist(10), turns=4)
+    with pytest.raises(ValueError, match="closed-loop"):
+        rust_des.simulate(SimConfig(), reqs)
+
+
+def test_inert_lever_settings_still_cross():
+    """Settings that change nothing on their own (block size, preemption mode) do not trigger the rejection."""
+    a = rust_des.simulate(SimConfig(kv_block_size=1, preemption="swap"), [(0.1, 100, 10), (0.2, 50, 5)])
+    b = rust_des.simulate(SimConfig(), [(0.1, 100, 10), (0.2, 50, 5)])
+    assert a.stamps == b.stamps
 
 
 def test_errors_cross_the_boundary_as_value_errors():

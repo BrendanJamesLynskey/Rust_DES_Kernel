@@ -125,6 +125,9 @@ pub struct ConfigSpec {
     pub decode_devices_per_instance: Option<i64>,
     /// KV hand-off compression (Python and JS only): any value other than null is rejected.
     pub kv_transit: Option<String>,
+    /// The brief-20A1 levers (batching policy, KV memory policy, prefix caching; Python and JS only):
+    /// any value other than null is rejected.
+    pub scheduler: Option<String>,
 }
 
 impl Default for ConfigSpec {
@@ -154,6 +157,7 @@ impl Default for ConfigSpec {
             prefill_devices_per_instance: None,
             decode_devices_per_instance: None,
             kv_transit: None,
+            scheduler: None,
         }
     }
 }
@@ -175,6 +179,12 @@ impl ConfigSpec {
         if let Some(t) = &self.kv_transit {
             return Err(ConfigError(format!(
                 "kv_transit {t:?}: KV hand-off compression is Python and JS only, not in the Rust port"
+            )));
+        }
+        if let Some(t) = &self.scheduler {
+            return Err(ConfigError(format!(
+                "scheduler {t:?}: batching policies, KV memory policies and prefix caching are Python and JS only, \
+                 not in the Rust port"
             )));
         }
         let dev = |key: &Option<String>| -> Result<Option<Accelerator>, ConfigError> {
@@ -815,6 +825,27 @@ mod tests {
                     ..Default::default()
                 },
                 "compression",
+            ),
+            (
+                ConfigSpec {
+                    scheduler: Some("batch_policy=chunked".into()),
+                    ..Default::default()
+                },
+                "prefix caching",
+            ),
+            (
+                ConfigSpec {
+                    model: "opt-13b".into(),
+                    ..Default::default()
+                },
+                "validation",
+            ),
+            (
+                ConfigSpec {
+                    device: "a100-40g".into(),
+                    ..Default::default()
+                },
+                "validation",
             ),
         ] {
             let err = spec.build().unwrap_err().to_string();
