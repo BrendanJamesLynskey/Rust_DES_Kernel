@@ -114,6 +114,13 @@ pub fn python_js_only(key: &str) -> Option<&'static str> {
         "mistral-7b" | "yi-34b" | "opt-13b" | "a100-40g" => Some(
             "is a validation preset for the batching and KV-memory levers: Python and JS only, not in the Rust port",
         ),
+        "mixtral-8x7b" => {
+            Some("is a mixture-of-experts model: Python and JS only, not in the Rust port")
+        }
+        "llama3.2-1b" | "h200" | "b200" => Some(
+            "is a preset for the parallelism, quantisation and speculative-decoding levers: Python and JS only, \
+             not in the Rust port",
+        ),
         _ => None,
     }
 }
@@ -200,6 +207,11 @@ pub fn link(key: &str) -> Option<Link> {
         "nvlink4" => ("NVLink 4 (one direction)", 450.0 * GB, 5e-6, 5.0),
         "ib-ndr" => ("InfiniBand NDR 400G", 50.0 * GB, 10e-6, 15.0),
         "pcie5" => ("PCIe Gen5 x16", 64.0 * GB, 5e-6, 6.0),
+        // added to the Python package 2026-10-06: an A100's host link, and the scale-up links of
+        // A100 and B200 instances (plain links here, usable for the KV hand-off)
+        "pcie4" => ("PCIe Gen4 x16", 32.0 * GB, 5e-6, 6.0),
+        "nvlink3" => ("NVLink 3 (one direction)", 300.0 * GB, 5e-6, 5.0),
+        "nvlink5" => ("NVLink 5 (one direction)", 900.0 * GB, 5e-6, 5.0),
         "eth-100g" => ("100 GbE", 12.5 * GB, 20e-6, 15.0),
         "eth-25g" => ("25 GbE", 3.125 * GB, 20e-6, 15.0),
         // photonic interconnect (not Fourier optics): illustrative round numbers

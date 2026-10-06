@@ -36,7 +36,10 @@ simulator core across languages *without changing a single answer*:
 > them by name with a clear error rather than simulate something else. The same holds for the
 > scheduling and KV-memory levers added on 2026-10-06 (batching policy and chunked prefill, paged KV
 > with preemption, prefix caching, closed-loop sessions, and their validation presets `mistral-7b`,
-> `yi-34b`, `opt-13b` and `a100-40g`): a `SimConfig` that turns any of them on is rejected.
+> `yi-34b`, `opt-13b` and `a100-40g`): a `SimConfig` that turns any of them on is rejected. So are the
+> second set of levers (same day): those levers in disaggregated pools, tensor/pipeline/expert parallelism,
+> weight and KV formats, speculative decoding, the `mixtral-8x7b` MoE model and the `llama3.2-1b`, `h200`
+> and `b200` presets.
 
 > **Cost model corrected on 2026-10-03.** The Python original charged every step the whole
 > input-embedding table and left out each decode token's attention to itself. An operator
@@ -166,7 +169,11 @@ compression (2026-10-04) are Python and JS only; configurations that use them ar
 2026-10-06 levers: colocated batching policies (`batch_policy`, `max_num_batched_tokens`), KV memory
 policies (`kv_policy`, paged blocks with recompute or swap preemption), prefix caching and closed-loop
 sessions (`Request.after`), with the error "... are Python and JS only, not in the Rust port". Settings
-that are inert on their own (`kv_block_size`, `preemption`, `host_link`) still cross.
+that are inert on their own (`kv_block_size`, `preemption`, `host_link`) still cross. The second set of
+2026-10-06 levers is rejected the same way, as one `scheduler` field built from `SimConfig.lever_summary`:
+the levers in disaggregated pools, parallelism inside an instance (`parallel`, `prefill_parallel`,
+`decode_parallel`), weight, KV and compute formats, speculative decoding, and the `mixtral-8x7b`,
+`llama3.2-1b`, `h200` and `b200` presets.
 
 Not yet: the time-series probe and Chrome trace export (passive in Python, so they do
 not affect results), the exact fast path (`FastDecodeInstance`; the Rust baseline

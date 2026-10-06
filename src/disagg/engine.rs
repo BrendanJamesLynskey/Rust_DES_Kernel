@@ -125,7 +125,8 @@ pub struct ConfigSpec {
     pub decode_devices_per_instance: Option<i64>,
     /// KV hand-off compression (Python and JS only): any value other than null is rejected.
     pub kv_transit: Option<String>,
-    /// The brief-20A1 levers (batching policy, KV memory policy, prefix caching; Python and JS only):
+    /// The brief-20A1/20A2 levers (batching policy, KV memory policy, prefix caching, parallelism,
+    /// quantisation, speculative decoding, MoE models; Python and JS only):
     /// any value other than null is rejected.
     pub scheduler: Option<String>,
 }
@@ -183,8 +184,8 @@ impl ConfigSpec {
         }
         if let Some(t) = &self.scheduler {
             return Err(ConfigError(format!(
-                "scheduler {t:?}: batching policies, KV memory policies and prefix caching are Python and JS only, \
-                 not in the Rust port"
+                "scheduler {t:?}: the simulator levers (batching and KV memory policies, parallelism, quantisation, \
+                 speculative decoding) and prefix caching are Python and JS only, not in the Rust port"
             )));
         }
         let dev = |key: &Option<String>| -> Result<Option<Accelerator>, ConfigError> {

@@ -18,9 +18,10 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import rust_des
-from disagg_sim.hardware import A100_SXM, H100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B
+from disagg_sim.hardware import A100_SXM, H100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B, Parallel
 from disagg_sim.metrics import summarise
 from disagg_sim.sim import SimConfig, simulate
+from disagg_sim.speculative import Speculative
 from disagg_sim.workload import LengthDist, poisson_workload
 
 STAMPS = rust_des.STAMPS
@@ -188,6 +189,9 @@ def test_heterogeneous_pools_with_identical_devices_equal_the_homogeneous_run():
     ({"kv_transit": "fp8 at transit"}, "compression"),
     ({"scheduler": "batch_policy=chunked"}, "prefix caching"),
     ({"model": "mistral-7b"}, "validation preset"),
+    ({"model": "mixtral-8x7b"}, "mixture-of-experts"),
+    ({"device": "b200"}, "speculative-decoding levers"),
+    ({"scheduler": "parallel=Parallel(tp=4)"}, "speculative decoding"),
 ])
 def test_python_and_js_only_features_are_rejected(cfg, needle):
     with pytest.raises(ValueError, match=f"{needle}.*not in the Rust port"):
@@ -209,6 +213,16 @@ def test_python_and_js_only_features_are_rejected_from_a_simconfig():
 def test_scheduler_levers_are_rejected_from_a_simconfig(kw):
     """Brief 20A1's batching, KV-memory and prefix-caching levers are Python and JS only."""
     with pytest.raises(ValueError, match="prefix caching are Python and JS only"):
+        rust_des.simulate(SimConfig(**kw), [(0.1, 100, 10)])
+
+
+@pytest.mark.parametrize("kw", [dict(parallel=Parallel(tp=4)), dict(weight_format="fp8"), dict(kv_format="int4"),
+                                dict(compute_format="fp8", weight_format="fp8"), dict(speculative=Speculative()),
+                                dict(mode="disagg", kv_policy="paged"), dict(decode_parallel=Parallel(tp=4))])
+def test_brief_20a2_levers_are_rejected_from_a_simconfig(kw):
+    """Brief 20A2's levers (parallelism, formats, speculative decoding; the 20A1 levers in disaggregated pools)
+    are Python and JS only."""
+    with pytest.raises(ValueError, match="not in the Rust port"):
         rust_des.simulate(SimConfig(**kw), [(0.1, 100, 10)])
 
 

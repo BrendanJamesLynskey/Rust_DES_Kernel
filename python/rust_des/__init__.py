@@ -37,8 +37,9 @@ def spec_from_simconfig(cfg) -> dict:
     one of the named presets is an error rather than a silent approximation.
     Heterogeneous pools cross as device names. The FFT-mixing models, the optical
     transform devices and KV hand-off compression cross by name too, and the Rust
-    side rejects them (they are Python and JS only); so do the brief-20A1 levers
-    (batching policy, KV memory policy, prefix caching), as one ``scheduler`` field.
+    side rejects them (they are Python and JS only); so do the brief-20A1/20A2 levers
+    (batching policy, KV memory policy, prefix caching, parallelism, weight and KV formats,
+    speculative decoding, MoE models), as one ``scheduler`` field.
     """
     from disagg_sim.hardware import ACCELERATORS, LINKS, MODELS
 
@@ -77,12 +78,15 @@ def spec_from_simconfig(cfg) -> dict:
         "prefill_devices_per_instance": getattr(cfg, "prefill_devices_per_instance", None),
         "decode_devices_per_instance": getattr(cfg, "decode_devices_per_instance", None),
         "kv_transit": None if tr is None else f"{tr.compression.name} at {tr.where}",
-        # batching policy, KV memory policy and prefix caching (brief 20A1): the Rust side rejects them
+        # the simulator levers of briefs 20A1 and 20A2: the Rust side rejects them
         "scheduler": _levers(cfg),
     }
 
 
 def _levers(cfg) -> str | None:
+    summary = getattr(cfg, "lever_summary", False)
+    if summary is not False:                  # disagg-sim from brief 20A2 on: every lever, as text
+        return summary
     if not getattr(cfg, "scheduled", False):
         return None
     return (f"batch_policy={cfg.batch_policy}, max_num_batched_tokens={cfg.max_num_batched_tokens}, "
