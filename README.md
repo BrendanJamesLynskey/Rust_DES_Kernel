@@ -50,6 +50,13 @@ simulator core across languages *without changing a single answer*:
 > speed-ups (53–69× before) vary from run to run on this desktop: three runs on 2026-10-03 gave
 > 65–76×. Neither change touches the event loop.
 
+> **Prefill routing corrected on 2026-10-28.** The Python original sent each prompt to the prefill
+> instance with the fewest queued prompt tokens, ignoring the batch it was prefilling, so a busy
+> instance whose queue had just emptied looked idle
+> ([Disaggregated_Inference_Sim PR #2](https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim/pull/2)).
+> This port now counts the batch in flight too and is still bit-exact; the golden fixture was
+> regenerated. Runs with one prefill instance are unchanged. The speed-ups below were not re-measured.
+
 ---
 
 ## Quick start

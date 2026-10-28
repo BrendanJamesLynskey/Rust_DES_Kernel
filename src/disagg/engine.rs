@@ -510,7 +510,18 @@ impl Simulation {
     fn load(&self, i: usize) -> i64 {
         let inst = &self.inst[i];
         match inst.role {
-            Role::Prefill => inst.queue.iter().map(|&r| self.reqs[r].prompt_len).sum(),
+            // Prompt tokens queued plus the batch being prefilled (`PrefillInstance.load`, since 2026-10-28).
+            Role::Prefill => {
+                let busy = match &inst.inflight {
+                    Some(InFlight::Prefill(batch, _)) => batch.as_slice(),
+                    _ => &[],
+                };
+                inst.queue
+                    .iter()
+                    .chain(busy)
+                    .map(|&r| self.reqs[r].prompt_len)
+                    .sum()
+            }
             _ => (inst.queue.len() + inst.running.len()) as i64,
         }
     }
