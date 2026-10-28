@@ -516,7 +516,11 @@ impl Simulation {
                     Some(InFlight::Prefill(batch, _)) => batch.as_slice(),
                     _ => &[],
                 };
-                inst.queue.iter().chain(busy).map(|&r| self.reqs[r].prompt_len).sum()
+                inst.queue
+                    .iter()
+                    .chain(busy)
+                    .map(|&r| self.reqs[r].prompt_len)
+                    .sum()
             }
             _ => (inst.queue.len() + inst.running.len()) as i64,
         }
