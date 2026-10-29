@@ -6,8 +6,8 @@
 //! every request with the same timestamps as the SimPy model, and `summarise`
 //! returns the same numbers (tested in `tests/golden.rs` and
 //! `pytests/test_differential.py`). Heterogeneous pools (a different device per pool) are
-//! ported; the FFT-mixing models, the optical transform engine and KV hand-off compression
-//! are Python and JS only, and a configuration that asks for them is rejected.
+//! ported; KV hand-off compression is Python and JS only, and a configuration that asks for it
+//! is rejected.
 
 pub mod engine;
 pub mod hardware;

@@ -96,21 +96,11 @@ pub const LLAMA3_70B: ModelSpec = ModelSpec {
     kv_bytes: 2.0,
 };
 
-/// Models, devices and features of the Python package that this port deliberately does not
-/// have (owner decision, 2026-10-04): the FFT-mixing model variants, the optical transform
-/// engine and KV hand-off compression. A configuration that names one is rejected with this
-/// reason rather than silently simulated as something else.
+/// Models and devices of the Python package that this port deliberately does not have. A
+/// configuration that names one is rejected with this reason rather than silently simulated as
+/// something else.
 pub fn python_js_only(key: &str) -> Option<&'static str> {
     match key {
-        "llama3-8b-hyena"
-        | "llama3-8b-hyena-dist"
-        | "llama3-8b-hybrid"
-        | "llama3-8b-hyena-circ" => {
-            Some("is an FFT-mixing model variant: Python and JS only, not in the Rust port")
-        }
-        "optical-fft" | "optical-fft-small" => {
-            Some("has an optical transform engine: Python and JS only, not in the Rust port")
-        }
         "mistral-7b" | "yi-34b" | "opt-13b" | "a100-40g" => Some(
             "is a validation preset for the batching and KV-memory levers: Python and JS only, not in the Rust port",
         ),
@@ -174,14 +164,6 @@ pub fn device(key: &str) -> Option<Accelerator> {
             pj_per_byte: 70.0,
             ..base
         }),
-        "optical" => Some(Accelerator {
-            name: "Hypothetical-optical-MAC",
-            peak_flops: 4000.0 * TB,
-            flops_eff: 0.4,
-            idle_w: 180.0,
-            pj_per_flop: 0.1,
-            ..base
-        }),
         _ => None,
     }
 }
@@ -214,8 +196,13 @@ pub fn link(key: &str) -> Option<Link> {
         "nvlink5" => ("NVLink 5 (one direction)", 900.0 * GB, 5e-6, 5.0),
         "eth-100g" => ("100 GbE", 12.5 * GB, 20e-6, 15.0),
         "eth-25g" => ("25 GbE", 3.125 * GB, 20e-6, 15.0),
-        // photonic interconnect (not Fourier optics): illustrative round numbers
-        "cpo-optical" => ("Co-packaged optics (illustrative)", 200.0 * GB, 5e-6, 3.0),
+        // an illustrative co-packaged-optics switch link: round numbers
+        "cpo-optical" => (
+            "Co-packaged optics switch (illustrative)",
+            200.0 * GB,
+            5e-6,
+            3.0,
+        ),
         _ => return None,
     };
     Some(Link {

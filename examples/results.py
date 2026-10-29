@@ -331,12 +331,9 @@ def mutation():
 
 def rejected():
     """Python-and-JS-only configurations, and the error each gets from the Rust side."""
-    from disagg_sim.hardware import KV_PRESETS, MODELS, OPTICAL_FFT, KVTransit
+    from disagg_sim.hardware import KV_PRESETS
     lines = ["| Configuration | Rust's answer |", "|---|---|"]
-    for name, cfg in [("Hyena-2 model", SimConfig(model=MODELS["llama3-8b-hyena"], devices_per_instance=1)),
-                      ("block-circulant model", SimConfig(model=MODELS["llama3-8b-hyena-circ"], devices_per_instance=1)),
-                      ("optical transform device in the prefill pool", SimConfig(prefill_device=OPTICAL_FFT)),
-                      ("fp8 KV compression in transit", SimConfig(kv_transit=KVTransit(KV_PRESETS["fp8"])))]:
+    for name, cfg in [("fp8 KV compression on the prefill GPU", SimConfig(kv_compression=KV_PRESETS["fp8"]))]:
         try:
             rust_des.simulate(cfg, [(0.1, 100, 10)])
             lines.append(f"| {name} | ran (unexpected) |")
@@ -472,9 +469,8 @@ Ported bit-exactly; the same comparison as section 1, 1,000 requests each:
 
 {parity(PARITY_HETERO)}
 
-The Python package also has FFT-mixing model variants, an optical transform device and KV hand-off compression.
-They are **Python and JS only, not in the Rust port** (owner decision, 2026-10-04), and the Rust side rejects
-them by name rather than simulate something else:
+The Python package also has KV hand-off compression on the prefill GPU. It is **Python and JS only, not in the
+Rust port** (owner decision, 2026-10-04), and the Rust side rejects it by name rather than simulate something else:
 
 {rejected()}
 
