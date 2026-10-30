@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import rust_des
-from disagg_sim.hardware import A100_SXM, H100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B
+from disagg_sim.hardware import A100_SXM, H100_SXM, LINKS, LLAMA3_8B
 from disagg_sim.metrics import summarise
 from disagg_sim.sim import SimConfig, simulate
 from disagg_sim.workload import LengthDist, poisson_workload
@@ -39,13 +39,12 @@ CASES = [
     # mutation run: the presets were only exercised by the Python differential suite.)
     ("8B on A100 over PCIe", SimConfig(model=LLAMA3_8B, device=A100_SXM, devices_per_instance=1,
                                        link=LINKS["pcie5"], n_prefill=2), 5.0, 0.6, 128, None),
-    ("optical part over 100 GbE", SimConfig(device=HYPOTHETICAL_OPTICAL, link=LINKS["eth-100g"]), 5.0, 0.6, 128, None),
     ("per-pool caps + DVFS over NVLink", SimConfig(prefill_power_cap_w=450.0, decode_power_cap_w=250.0, dvfs=True,
                                                    link=LINKS["nvlink4"]), 5.0, 0.6, 128, None),
     ("colocated, 300 W cap", SimConfig(mode="colocated", power_cap_w=300.0), 5.0, 0.6, 128, None),
     ("1P1D, 200 W cap (compute-bound throttling)", SimConfig(power_cap_w=200.0), 3.0, 0.6, 128, None),
     # Heterogeneous pools (2026-10-04): a device and a device count per pool, and the
-    # co-packaged-optics link preset.
+    # co-packaged-optics switch link preset.
     ("8B: H100 prefill + A100 decode", SimConfig(model=LLAMA3_8B, devices_per_instance=1, prefill_device=H100_SXM,
                                                  decode_device=A100_SXM), 6.0, 0.6, 128, None),
     ("70B: 2x A100 prefill (4 each) + H100 decode (8), co-packaged optics",

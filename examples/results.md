@@ -188,16 +188,12 @@ Ported bit-exactly; the same comparison as section 1, 1,000 requests each:
 | 70B: 4x H100 prefill + 8x A100 decode, per-pool caps + DVFS | 1,000 | 6,000 | 0 | yes |
 | 70B: explicit identical pools | 1,000 | 6,000 | 0 | yes |
 
-The Python package also has FFT-mixing model variants, an optical transform device and KV hand-off compression.
-They are **Python and JS only, not in the Rust port** (owner decision, 2026-10-04), and the Rust side rejects
-them by name rather than simulate something else:
+The Python package also has KV hand-off compression on the prefill GPU. It is **Python and JS only, not in the
+Rust port** (owner decision, 2026-10-04), and the Rust side rejects it by name rather than simulate something else:
 
 | Configuration | Rust's answer |
 |---|---|
-| Hyena-2 model | `ValueError: llama3-8b-hyena is an FFT-mixing model variant: Python and JS only, not in the Rust port` |
-| block-circulant model | `ValueError: llama3-8b-hyena-circ is an FFT-mixing model variant: Python and JS only, not in the Rust port` |
-| optical transform device in the prefill pool | `ValueError: optical-fft has an optical transform engine: Python and JS only, not in the Rust port` |
-| fp8 KV compression in transit | `ValueError: kv_transit "fp8 at transit": KV hand-off compression is Python and JS only, not in the Rust port` |
+| fp8 KV compression on the prefill GPU | `ValueError: kv_compression "fp8": KV hand-off compression is Python and JS only, not in the Rust port` |
 
 ### Mutation testing of the changed modules
 

@@ -124,7 +124,7 @@ pub struct ConfigSpec {
     pub prefill_devices_per_instance: Option<i64>,
     pub decode_devices_per_instance: Option<i64>,
     /// KV hand-off compression (Python and JS only): any value other than null is rejected.
-    pub kv_transit: Option<String>,
+    pub kv_compression: Option<String>,
     /// The brief-20A1/20A2 levers (batching policy, KV memory policy, prefix caching, parallelism,
     /// quantisation, speculative decoding, MoE models; Python and JS only):
     /// any value other than null is rejected.
@@ -157,7 +157,7 @@ impl Default for ConfigSpec {
             decode_device: None,
             prefill_devices_per_instance: None,
             decode_devices_per_instance: None,
-            kv_transit: None,
+            kv_compression: None,
             scheduler: None,
         }
     }
@@ -177,9 +177,9 @@ impl ConfigSpec {
                 return Err(ConfigError(format!("{key} {why}")));
             }
         }
-        if let Some(t) = &self.kv_transit {
+        if let Some(t) = &self.kv_compression {
             return Err(ConfigError(format!(
-                "kv_transit {t:?}: KV hand-off compression is Python and JS only, not in the Rust port"
+                "kv_compression {t:?}: KV hand-off compression is Python and JS only, not in the Rust port"
             )));
         }
         if let Some(t) = &self.scheduler {
@@ -812,28 +812,7 @@ mod tests {
         for (spec, needle) in [
             (
                 ConfigSpec {
-                    model: "llama3-8b-hyena".into(),
-                    ..Default::default()
-                },
-                "FFT-mixing",
-            ),
-            (
-                ConfigSpec {
-                    prefill_device: Some("optical-fft".into()),
-                    ..Default::default()
-                },
-                "transform engine",
-            ),
-            (
-                ConfigSpec {
-                    device: "optical-fft-small".into(),
-                    ..Default::default()
-                },
-                "transform engine",
-            ),
-            (
-                ConfigSpec {
-                    kv_transit: Some("fp8 at transit".into()),
+                    kv_compression: Some("fp8".into()),
                     ..Default::default()
                 },
                 "compression",

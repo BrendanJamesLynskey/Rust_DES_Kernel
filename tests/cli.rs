@@ -79,7 +79,7 @@ fn heterogeneous_pools_from_the_command_line() {
         text.contains("pools        prefill 1x H100-SXM   decode 2x A100-SXM"),
         "{text}"
     );
-    let rejected = disagg_rs(&["--prefill-device", "optical-fft"]);
+    let rejected = disagg_rs(&["--prefill-device", "h200"]);
     assert_eq!(rejected.status.code(), Some(2));
     let err = String::from_utf8(rejected.stderr).unwrap();
     assert!(err.contains("not in the Rust port"), "{err}");

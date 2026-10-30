@@ -18,7 +18,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import rust_des
-from disagg_sim.hardware import A100_SXM, H100_SXM, HYPOTHETICAL_OPTICAL, LINKS, LLAMA3_8B, Parallel
+from disagg_sim.hardware import A100_SXM, H100_SXM, LINKS, LLAMA3_8B, Parallel
 from disagg_sim.metrics import summarise
 from disagg_sim.sim import SimConfig, simulate
 from disagg_sim.speculative import Speculative
@@ -67,7 +67,6 @@ CASES = {
     "per-pool caps": dict(prefill_power_cap_w=450.0, decode_power_cap_w=250.0, dvfs=True),
     "8B on A100 over PCIe": dict(model=LLAMA3_8B, device=A100_SXM, devices_per_instance=1,
                                  link=LINKS["pcie5"], n_prefill=2),
-    "hypothetical optical part": dict(device=HYPOTHETICAL_OPTICAL),
     "3P1D, NVLink, tight prefill budget": dict(n_prefill=3, link=LINKS["nvlink4"], max_prefill_tokens=4096),
     # Heterogeneous pools (2026-10-04): a different device, or device count, per pool.
     "8B: H100 prefill + A100 decode": dict(model=LLAMA3_8B, devices_per_instance=1, prefill_device=H100_SXM,
@@ -80,9 +79,6 @@ CASES = {
         dvfs=True),
     "70B: explicit identical pools": dict(prefill_device=H100_SXM, decode_device=H100_SXM,
                                           prefill_devices_per_instance=4, decode_devices_per_instance=4),
-    "8B: optical-MAC prefill + A100 decode over 25 GbE": dict(
-        model=LLAMA3_8B, devices_per_instance=1, prefill_device=HYPOTHETICAL_OPTICAL, decode_device=A100_SXM,
-        link=LINKS["eth-25g"]),
 }
 
 
@@ -183,10 +179,7 @@ def test_heterogeneous_pools_with_identical_devices_equal_the_homogeneous_run():
 
 
 @pytest.mark.parametrize("cfg, needle", [
-    ({"model": "llama3-8b-hyena"}, "FFT-mixing"),
-    ({"model": "llama3-8b-hyena-circ", "devices_per_instance": 1}, "FFT-mixing"),
-    ({"prefill_device": "optical-fft"}, "transform engine"),
-    ({"kv_transit": "fp8 at transit"}, "compression"),
+    ({"kv_compression": "fp8"}, "compression"),
     ({"scheduler": "batch_policy=chunked"}, "prefix caching"),
     ({"model": "mistral-7b"}, "validation preset"),
     ({"model": "mixtral-8x7b"}, "mixture-of-experts"),
@@ -199,10 +192,8 @@ def test_python_and_js_only_features_are_rejected(cfg, needle):
 
 
 def test_python_and_js_only_features_are_rejected_from_a_simconfig():
-    from disagg_sim.hardware import KV_PRESETS, MODELS, OPTICAL_FFT, KVTransit
-    for cfg in (SimConfig(model=MODELS["llama3-8b-hybrid"], devices_per_instance=1),
-                SimConfig(prefill_device=OPTICAL_FFT),
-                SimConfig(kv_transit=KVTransit(KV_PRESETS["fp8"]))):
+    from disagg_sim.hardware import KV_PRESETS
+    for cfg in (SimConfig(kv_compression=KV_PRESETS["fp8"]),):
         with pytest.raises(ValueError, match="not in the Rust port"):
             rust_des.simulate(cfg, [(0.1, 100, 10)])
 

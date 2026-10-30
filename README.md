@@ -30,10 +30,9 @@ simulator core across languages *without changing a single answer*:
 > **Heterogeneous pools, 2026-10-04.** Each pool can have its own device and device count
 > (`--prefill-device h100 --decode-device a100`), ported bit-exactly: four pool mixes × 1,000 requests,
 > 0 differing timestamps, identical summaries ([`examples/results.md`](examples/results.md), section 9).
-> The Python package also gained FFT-mixing model variants, an optical transform device and KV hand-off
-> compression for the [Fourier Optics for Inference](https://github.com/BrendanJamesLynskey/LLM_Hub_Fourier_Optics_Inference)
-> series. Those are **Python and JS only, not in the Rust port** (owner decision), and this port rejects
-> them by name with a clear error rather than simulate something else. The same holds for the
+> The Python package also has KV hand-off compression on the prefill GPU. It is **Python and JS only, not in the
+> Rust port** (owner decision), and this port rejects it by name with a clear error rather than simulate something
+> else. The same holds for the
 > scheduling and KV-memory levers added on 2026-10-06 (batching policy and chunked prefill, paged KV
 > with preemption, prefix caching, closed-loop sessions, and their validation presets `mistral-7b`,
 > `yi-34b`, `opt-13b` and `a100-40g`): a `SimConfig` that turns any of them on is rejected. So are the
@@ -171,8 +170,8 @@ Tests: 63 (35 Rust, 28 Python); line coverage 97.6%; mutation score 95% (813 of 
 
 ## Not ported (yet)
 
-By decision, not by omission: the FFT-mixing model variants, the optical transform device and KV hand-off
-compression (2026-10-04) are Python and JS only; configurations that use them are rejected. So are the
+By decision, not by omission: KV hand-off compression (2026-10-04) is Python and JS only; configurations that use
+it are rejected. So are the
 2026-10-06 levers: colocated batching policies (`batch_policy`, `max_num_batched_tokens`), KV memory
 policies (`kv_policy`, paged blocks with recompute or swap preemption), prefix caching and closed-loop
 sessions (`Request.after`), with the error "... are Python and JS only, not in the Rust port". Settings

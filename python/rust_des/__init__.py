@@ -35,9 +35,8 @@ def spec_from_simconfig(cfg) -> dict:
 
     Models, devices and links are passed by name; a hardware object that is not
     one of the named presets is an error rather than a silent approximation.
-    Heterogeneous pools cross as device names. The FFT-mixing models, the optical
-    transform devices and KV hand-off compression cross by name too, and the Rust
-    side rejects them (they are Python and JS only); so do the brief-20A1/20A2 levers
+    Heterogeneous pools cross as device names. KV hand-off compression crosses by name
+    too, and the Rust side rejects it (it is Python and JS only); so do the brief-20A1/20A2 levers
     (batching policy, KV memory policy, prefix caching, parallelism, weight and KV formats,
     speculative decoding, MoE models), as one ``scheduler`` field.
     """
@@ -50,7 +49,7 @@ def spec_from_simconfig(cfg) -> dict:
         raise ValueError(f"{what} {obj!r} is not a named preset, so it cannot cross to Rust")
 
     pd, dd = getattr(cfg, "prefill_device", None), getattr(cfg, "decode_device", None)
-    tr = getattr(cfg, "kv_transit", None)
+    kc = getattr(cfg, "kv_compression", None)
     link = key(LINKS, cfg.link, "link",
                lambda a, b: (a.bandwidth, a.latency, a.pj_per_bit) == (b.bandwidth, b.latency, b.pj_per_bit))
     return {
@@ -77,7 +76,7 @@ def spec_from_simconfig(cfg) -> dict:
         "decode_device": None if dd is None else key(ACCELERATORS, dd, "device"),
         "prefill_devices_per_instance": getattr(cfg, "prefill_devices_per_instance", None),
         "decode_devices_per_instance": getattr(cfg, "decode_devices_per_instance", None),
-        "kv_transit": None if tr is None else f"{tr.compression.name} at {tr.where}",
+        "kv_compression": None if kc is None else kc.name,
         # the simulator levers of briefs 20A1 and 20A2: the Rust side rejects them
         "scheduler": _levers(cfg),
     }
